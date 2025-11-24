@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock } from 'lucide-react';
+import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock, Loader2 } from 'lucide-react';
 // Import Firebase
 import { db } from './firebase';
 import { ref, set, onValue, update, get } from "firebase/database";
@@ -55,7 +55,7 @@ export default function GeoGuessrGame() {
   const [guessLocation, setGuessLocation] = useState(null); 
   const [score, setScore] = useState(0);
   const [round, setRound] = useState(1);
-  const [maxRounds] = useState(5);
+  const [maxRounds] = useState(10);
   const [gameOver, setGameOver] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [lastDistance, setLastDistance] = useState(null);
@@ -78,7 +78,7 @@ export default function GeoGuessrGame() {
   const correctMarkerRef = useRef(null); 
   const polylineRef = useRef(null); 
 
-  // Cleanup
+  // Cleanup map instance on mode change
   useEffect(() => {
     if (gameMode !== 'single' && gameMode !== 'multi') {
         mapInstanceRef.current = null;
@@ -158,6 +158,7 @@ export default function GeoGuessrGame() {
 
   // --- Map & Street View ---
   const initGuessMap = () => {
+    // 確保 DOM 存在且地圖未初始化
     if (window.google && guessMapRef.current && !mapInstanceRef.current) {
       mapInstanceRef.current = new window.google.maps.Map(guessMapRef.current, {
         center: { lat: 0, lng: 0 },
@@ -207,13 +208,15 @@ export default function GeoGuessrGame() {
     setShowResult(false);
     setLastDistance(null);
     setLastScore(null);
-    setIsLoading(false);
+    setIsLoading(false); // 重要：關閉 Loading
     
     if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
     if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
     if (polylineRef.current) polylineRef.current.setMap(null);
     
+    // 確保地圖視角重置
     if (mapInstanceRef.current) {
+        window.google.maps.event.trigger(mapInstanceRef.current, 'resize'); // 強制重繪
         mapInstanceRef.current.setCenter({ lat: 0, lng: 0 });
         mapInstanceRef.current.setZoom(2);
     }
@@ -258,11 +261,11 @@ export default function GeoGuessrGame() {
         mapInstanceRef.current.fitBounds(bounds);
     }
 
-    // Multiplayer: Update Score AND Round Complete Status
+    // Multiplayer: Update Score and Status
     if (gameMode === 'multi' && multiRoomCode && playerId) {
         update(ref(db, `rooms/${multiRoomCode}/players/${playerId}`), {
             score: newTotalScore,
-            roundComplete: true // 標記為已答題
+            roundComplete: true
         });
     }
   };
@@ -280,7 +283,6 @@ export default function GeoGuessrGame() {
             startNewRound(nextLocation);
         }
     } else if (gameMode === 'multi' && isHost) {
-        // 房主觸發下一回合
         if (round >= maxRounds) {
             update(ref(db, `rooms/${multiRoomCode}`), { status: 'finished' });
             setIsLoading(false);
@@ -288,12 +290,10 @@ export default function GeoGuessrGame() {
             const nextRoundNum = round + 1;
             const nextLocation = await getValidStreetViewLocation();
             
-            // 建立更新物件，一次性更新多個路徑
             const updates = {};
             updates[`rooms/${multiRoomCode}/round`] = nextRoundNum;
             updates[`rooms/${multiRoomCode}/currentLocation`] = nextLocation;
-            
-            // 重置所有玩家的 roundComplete 為 false
+            // Reset all players status
             players.forEach(p => {
                  updates[`rooms/${multiRoomCode}/players/${p.id}/roundComplete`] = false;
             });
@@ -420,77 +420,28 @@ export default function GeoGuessrGame() {
 
   // --- UI Components ---
 
-  const renderMultiplayerStatus = () => {
+  // 頂部玩家狀態列
+  const renderTopBarStatus = () => {
     if (gameMode !== 'multi') return null;
-    
-    // 檢查是否所有人都完成了
-    const allFinished = players.every(p => p.roundComplete);
-
     return (
-        <div className="mt-4 border-t pt-2">
-            <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2">
-                <Users className="w-4 h-4" /> Players Status
-            </h4>
-            <div className="space-y-1 text-sm max-h-32 overflow-y-auto">
-                {players.map(p => (
-                    <div key={p.id} className="flex justify-between items-center bg-gray-50 p-2 rounded">
-                        <div className="flex items-center gap-2">
-                            {p.roundComplete ? 
-                                <CheckCircle className="w-4 h-4 text-green-500" /> : 
-                                <Clock className="w-4 h-4 text-orange-500 animate-pulse" />
-                            }
-                            <span className={p.id === playerId ? "font-bold" : ""}>
-                                {p.name} {p.id === playerId ? '(You)' : ''}
-                            </span>
-                        </div>
-                        <span className="font-mono font-bold text-blue-600">{p.score} pts</span>
+        <div className="hidden md:flex items-center gap-4 border-l pl-4 ml-4">
+            {players.map(p => (
+                <div key={p.id} className={`flex items-center gap-2 px-3 py-1 rounded-full ${p.id === playerId ? 'bg-blue-100 border border-blue-200' : 'bg-gray-50'}`}>
+                    <div className="relative">
+                        {p.roundComplete ? 
+                            <CheckCircle className="w-4 h-4 text-green-500" /> : 
+                            <Clock className="w-4 h-4 text-orange-400 animate-pulse" />
+                        }
                     </div>
-                ))}
-            </div>
-            
-            {/* 房主專屬控制區 */}
-            {isHost && (
-                <div className="mt-3">
-                    {!allFinished ? (
-                        <p className="text-xs text-red-500 italic text-center">Waiting for everyone to finish...</p>
-                    ) : (
-                        <p className="text-xs text-green-600 italic text-center mb-1">All players ready!</p>
-                    )}
-                    
-                    <button 
-                        onClick={handleNextRoundAction} 
-                        disabled={!allFinished} // 只有當所有人都完成時，按鈕才啟用
-                        className={`w-full py-2 rounded-lg font-bold transition ${
-                            allFinished 
-                            ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        }`}
-                    >
-                        {round >= maxRounds ? 'View Final Results' : 'Next Round'}
-                    </button>
+                    <span className="text-sm font-semibold text-gray-700">{p.name}</span>
+                    <span className="text-sm font-bold text-blue-600">{p.score}</span>
                 </div>
-            )}
-            
-            {!isHost && (
-                <div className="mt-3 text-center text-gray-500 text-xs italic">
-                    {allFinished ? "Waiting for host to start next round..." : "Waiting for other players..."}
-                </div>
-            )}
+            ))}
         </div>
     );
   };
 
-  // --- Loading Screen ---
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-blue-600 flex flex-col items-center justify-center text-white">
-        <Globe className="w-16 h-16 animate-spin mb-4" />
-        <h2 className="text-2xl font-bold">Loading...</h2>
-      </div>
-    );
-  }
-
-  // --- Menu ---
+  // --- Menu & Lobby ---
   if (gameMode === 'menu') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
@@ -501,6 +452,8 @@ export default function GeoGuessrGame() {
             <p className="text-gray-600">Global Multiplayer Edition</p>
           </div>
           <div className="space-y-4">
+            {isLoading ? <div className="text-center py-4"><Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500"/></div> : (
+            <>
             <button
               onClick={async () => { 
                   setGameMode('single'); 
@@ -525,13 +478,14 @@ export default function GeoGuessrGame() {
                 </div>
               </div>
             </div>
+            </>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // --- Lobby ---
   if (gameMode === 'lobby') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4">
@@ -552,10 +506,12 @@ export default function GeoGuessrGame() {
             </div>
           </div>
           <div className="space-y-3">
-            {isHost ? (
-                <button onClick={hostStartGame} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Start Game</button>
-            ) : (
-                <div className="text-center text-gray-600 italic">Waiting for host to start...</div>
+            {isLoading ? <div className="text-center text-blue-600 font-bold">Starting game...</div> : (
+                isHost ? (
+                    <button onClick={hostStartGame} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Start Game</button>
+                ) : (
+                    <div className="text-center text-gray-600 italic">Waiting for host to start...</div>
+                )
             )}
             <button onClick={() => { setGameMode('menu'); setMultiRoomCode(''); setPlayers([]); }} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition">Leave</button>
           </div>
@@ -564,7 +520,6 @@ export default function GeoGuessrGame() {
     );
   }
 
-  // --- Game Over ---
   if (gameOver) {
     const sortedPlayers = gameMode === 'multi' ? [...players].sort((a, b) => b.score - a.score) : [];
     return (
@@ -580,8 +535,11 @@ export default function GeoGuessrGame() {
               <h3 className="font-bold text-gray-700 mb-3">Leaderboard</h3>
               <div className="space-y-2">
                 {sortedPlayers.map((p, i) => (
-                  <div key={p.id} className="bg-white p-3 rounded-lg flex justify-between">
-                      <span className="font-semibold">{i+1}. {p.name}</span>
+                  <div key={p.id} className="bg-white p-3 rounded-lg flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                          <span className="text-gray-500 w-6">#{i+1}</span>
+                          <span className="font-semibold">{p.name}</span>
+                      </div>
                       <span className="font-bold text-blue-600">{p.score}</span>
                   </div>
                 ))}
@@ -594,19 +552,46 @@ export default function GeoGuessrGame() {
     );
   }
 
-  // --- Main Game Interface ---
+  // --- Game Interface ---
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-      <div className="bg-white shadow-md p-4 z-10">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-6">
-            <div><span className="text-sm text-gray-600">Round</span><p className="text-2xl font-bold text-blue-600">{round}/{maxRounds}</p></div>
-            <div><span className="text-sm text-gray-600">Score</span><p className="text-2xl font-bold text-green-600">{score}</p></div>
-            {gameMode === 'multi' && <div><span className="text-sm text-gray-600">Room</span><p className="text-lg font-mono font-bold">{multiRoomCode}</p></div>}
-          </div>
-          <button onClick={() => setGameMode('menu')} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Leave</button>
+    <div className="min-h-screen bg-gray-100 flex flex-col relative">
+      
+      {/* 全局 Loading Overlay (不拆除下方 DOM) */}
+      {isLoading && (
+        <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center text-white">
+            <Loader2 className="w-16 h-16 animate-spin mb-4" />
+            <h2 className="text-2xl font-bold">Traveling to next location...</h2>
         </div>
+      )}
+
+      {/* Top Bar */}
+      <div className="bg-white shadow-md p-4 z-10 flex justify-between items-center">
+        <div className="flex items-center gap-6">
+            <div><span className="text-xs text-gray-500 uppercase block">Round</span><span className="text-xl font-bold text-blue-600">{round}/{maxRounds}</span></div>
+            {gameMode === 'single' && (
+               <div><span className="text-xs text-gray-500 uppercase block">Score</span><span className="text-xl font-bold text-green-600">{score}</span></div>
+            )}
+            {gameMode === 'multi' && (
+                <>
+                <div className="hidden md:block"><span className="text-xs text-gray-500 uppercase block">Room</span><span className="text-lg font-mono font-bold">{multiRoomCode}</span></div>
+                {renderTopBarStatus()}
+                </>
+            )}
+        </div>
+        <button onClick={() => setGameMode('menu')} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm">Leave</button>
       </div>
+
+      {/* Mobile Player Status (Only visible on small screens) */}
+      {gameMode === 'multi' && (
+          <div className="md:hidden bg-gray-50 border-b p-2 flex overflow-x-auto gap-2">
+              {players.map(p => (
+                  <div key={p.id} className="flex-shrink-0 flex items-center gap-1 px-2 py-1 bg-white rounded border shadow-sm text-xs">
+                      {p.roundComplete ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Clock className="w-3 h-3 text-orange-400" />}
+                      <span className={p.id === playerId ? "font-bold" : ""}>{p.name}: {p.score}</span>
+                  </div>
+              ))}
+          </div>
+      )}
 
       <div className="flex-1 flex flex-col md:flex-row h-full relative">
         {/* Left: Street View */}
@@ -619,18 +604,47 @@ export default function GeoGuessrGame() {
           
           {/* Result Overlay */}
           {showResult && (
-            <div className="absolute bottom-4 right-4 bg-white/95 p-4 rounded-xl shadow-lg backdrop-blur-sm z-30 min-w-[300px]">
-               <h3 className="font-bold text-lg mb-1">Round Result</h3>
-               <p>Distance: <span className="font-bold text-red-500">{Math.round(lastDistance)} km</span></p>
-               <p>Score: <span className="font-bold text-green-600">+{lastScore}</span></p>
+            <div className="absolute bottom-4 right-4 bg-white/95 p-6 rounded-xl shadow-2xl backdrop-blur-sm z-30 min-w-[320px] border border-gray-100">
+               <h3 className="font-bold text-xl mb-2 text-gray-800">Round Result</h3>
+               <div className="flex justify-between items-end mb-4">
+                   <div>
+                       <p className="text-sm text-gray-500">Distance</p>
+                       <p className="text-2xl font-bold text-gray-800">{Math.round(lastDistance)} <span className="text-sm font-normal">km</span></p>
+                   </div>
+                   <div className="text-right">
+                       <p className="text-sm text-gray-500">Points</p>
+                       <p className="text-2xl font-bold text-green-600">+{lastScore}</p>
+                   </div>
+               </div>
                
-               {/* 顯示多人對戰狀態 */}
-               {gameMode === 'multi' && renderMultiplayerStatus()}
+               {/* 多人模式：顯示等待狀態 */}
+               {gameMode === 'multi' && (
+                   <div className="border-t pt-3">
+                        <div className="text-sm font-semibold text-gray-600 mb-2">Waiting for others...</div>
+                        {isHost ? (
+                            <button 
+                                onClick={handleNextRoundAction} 
+                                disabled={!players.every(p => p.roundComplete)}
+                                className={`w-full py-3 rounded-lg font-bold text-white transition shadow-lg ${
+                                    players.every(p => p.roundComplete)
+                                    ? 'bg-blue-600 hover:bg-blue-700 transform hover:-translate-y-0.5' 
+                                    : 'bg-gray-400 cursor-not-allowed'
+                                }`}
+                            >
+                                {players.every(p => p.roundComplete) ? (round >= maxRounds ? 'Finish Game' : 'Next Round') : `${players.filter(p => p.roundComplete).length}/${players.length} Ready`}
+                            </button>
+                        ) : (
+                            <div className="text-center py-2 bg-gray-100 rounded text-gray-500 text-sm animate-pulse">
+                                {players.every(p => p.roundComplete) ? "Host is starting next round..." : "Waiting for other players..."}
+                            </div>
+                        )}
+                   </div>
+               )}
 
-               {/* 單人模式直接顯示按鈕 */}
+               {/* 單人模式：直接顯示按鈕 */}
                {gameMode === 'single' && (
-                   <button onClick={handleNextRoundAction} className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
-                     {round >= maxRounds ? 'View Total' : 'Next Round'}
+                   <button onClick={handleNextRoundAction} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition shadow-lg transform hover:-translate-y-0.5">
+                     {round >= maxRounds ? 'View Total Score' : 'Next Round'}
                    </button>
                )}
             </div>
