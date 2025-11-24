@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Globe, Users, Trophy, MapPin, Play, Home } from 'lucide-react';
+import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon } from 'lucide-react';
 
-// 預設位置庫（世界各地的有趣位置）
+// 預設位置庫
 const LOCATIONS = [
   { lat: 48.8584, lng: 2.2945, country: '法國', city: '巴黎' },
   { lat: 35.6762, lng: 139.6503, country: '日本', city: '東京' },
@@ -15,38 +15,17 @@ const LOCATIONS = [
   { lat: 30.0444, lng: 31.2357, country: '埃及', city: '開羅' },
 ];
 
-const ALL_COUNTRIES = ['法國', '日本', '美國', '英國', '澳洲', '義大利', '台灣', '俄羅斯', '巴西', '埃及', '德國', '西班牙', '加拿大', '中國', '印度', '韓國', '泰國', '越南', '新加坡', '馬來西亞', '印尼', '菲律賓', '墨西哥', '阿根廷', '智利', '哥倫比亞', '秘魯', '南非', '肯亞', '摩洛哥', '土耳其', '希臘', '瑞士', '瑞典', '挪威', '丹麥', '芬蘭', '波蘭', '捷克', '荷蘭', '比利時', '奧地利', '葡萄牙', '愛爾蘭', '紐西蘭', '以色列', '阿聯酋', '沙烏地阿拉伯', '巴基斯坦', '孟加拉'];
-
-// 隨機選擇國家（包含正確答案）
-const getRandomCountries = (correctCountry) => {
-  const countries = [correctCountry];
-  const otherCountries = ALL_COUNTRIES.filter(c => c !== correctCountry);
-  
-  // 隨機選擇其他9個國家
-  while (countries.length < 10) {
-    const randomIndex = Math.floor(Math.random() * otherCountries.length);
-    const country = otherCountries[randomIndex];
-    if (!countries.includes(country)) {
-      countries.push(country);
-    }
-  }
-  
-  // 打亂順序
-  return countries.sort(() => Math.random() - 0.5);
-};
-
 export default function GeoGuessrGame() {
-  const [gameMode, setGameMode] = useState('menu'); // menu, single, multi, lobby
+  const [gameMode, setGameMode] = useState('menu'); 
   const [currentLocation, setCurrentLocation] = useState(null);
-  const [selectedCountry, setSelectedCountry] = useState('');
+  const [guessLocation, setGuessLocation] = useState(null); // 儲存使用者點擊的座標 {lat, lng}
   const [score, setScore] = useState(0);
   const [round, setRound] = useState(1);
-  const [maxRounds] = useState(5);
+  const [maxRounds] = useState(10);
   const [gameOver, setGameOver] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [lastDistance, setLastDistance] = useState(null);
   const [lastScore, setLastScore] = useState(null);
-  const [countryOptions, setCountryOptions] = useState([]);
   
   // 多人遊戲狀態
   const [roomCode, setRoomCode] = useState('');
@@ -55,74 +34,171 @@ export default function GeoGuessrGame() {
   const [isHost, setIsHost] = useState(false);
   const [multiRoomCode, setMultiRoomCode] = useState('');
   
-  const panoramaRef = useRef(null);
-  const mapRef = useRef(null);
+  // Refs
+  const panoramaRef = useRef(null); // 街景 DOM
+  const guessMapRef = useRef(null); // 猜測地圖 DOM
+  const mapInstanceRef = useRef(null); // 猜測地圖的 Google Map 實例
+  const guessMarkerRef = useRef(null); // 使用者猜測的標記
+  const correctMarkerRef = useRef(null); // 正確答案的標記
+  const polylineRef = useRef(null); // 連接兩點的線
 
-  // 計算兩點間距離（Haversine 公式）
+  // 計算兩點間距離（Haversine 公式）- 單位：公里
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // 地球半徑（公里）
+    const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = 
       Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon/2) * Math.sin(dLon/2);
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   };
 
-  // 根據距離計算分數
+  // 根據距離計算分數 (指數遞減，越近越高分)
   const calculateScore = (distance) => {
-    if (distance < 100) return 5000;
-    if (distance < 500) return 4000;
-    if (distance < 1000) return 3000;
-    if (distance < 2000) return 2000;
-    if (distance < 5000) return 1000;
-    return 500;
+    // 5000 * e^(-distance / 2000) 是一個常見的算法
+    // 距離 0km = 5000分
+    // 距離 2000km ≈ 1800分
+    // 距離 10000km ≈ 30分
+    return Math.round(5000 * Math.exp(-distance / 2000));
+  };
+
+  // 初始化猜測地圖 (2D Map)
+  const initGuessMap = () => {
+    if (window.google && guessMapRef.current && !mapInstanceRef.current) {
+      mapInstanceRef.current = new window.google.maps.Map(guessMapRef.current, {
+        center: { lat: 0, lng: 0 },
+        zoom: 2,
+        disableDefaultUI: true, // 簡化介面
+        clickableIcons: false,
+      });
+
+      // 點擊地圖事件
+      mapInstanceRef.current.addListener('click', (e) => {
+        // 如果已經顯示結果，就不允許再點擊修改
+        if (showResult) return;
+
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
+        setGuessLocation({ lat, lng });
+
+        // 清除舊標記
+        if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
+
+        // 新增紅色標記 (你的猜測)
+        guessMarkerRef.current = new window.google.maps.Marker({
+          position: { lat, lng },
+          map: mapInstanceRef.current,
+          icon: {
+             url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" // 紅色
+          }
+        });
+      });
+    }
   };
 
   // 開始新回合
   const startNewRound = () => {
     const randomLocation = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
     setCurrentLocation(randomLocation);
-    setSelectedCountry('');
+    setGuessLocation(null);
     setShowResult(false);
     setLastDistance(null);
     setLastScore(null);
-    setCountryOptions(getRandomCountries(randomLocation.country));
-    loadStreetView(randomLocation);
+    
+    // 清理地圖上的標記和線
+    if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
+    if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
+    if (polylineRef.current) polylineRef.current.setMap(null);
+
+    // 重置地圖視角
+    if (mapInstanceRef.current) {
+        mapInstanceRef.current.setCenter({ lat: 0, lng: 0 });
+        mapInstanceRef.current.setZoom(2);
+    }
+
+    // 稍微延遲以確保 DOM 已渲染
+    setTimeout(() => {
+        loadStreetView(randomLocation);
+        initGuessMap(); // 確保猜測地圖也初始化
+    }, 100);
   };
 
   // 載入街景
   const loadStreetView = (location) => {
     if (window.google && panoramaRef.current) {
-      const panorama = new window.google.maps.StreetViewPanorama(
-        panoramaRef.current,
-        {
-          position: { lat: location.lat, lng: location.lng },
-          pov: { heading: 165, pitch: 0 },
-          zoom: 1,
-          disableDefaultUI: true,
-          linksControl: false,
-          panControl: false,
-          enableCloseButton: false,
-        }
-      );
+      try {
+        new window.google.maps.StreetViewPanorama(
+          panoramaRef.current,
+          {
+            position: { lat: location.lat, lng: location.lng },
+            pov: { heading: 165, pitch: 0 },
+            zoom: 1,
+            disableDefaultUI: true,
+            linksControl: false,
+            panControl: false,
+            enableCloseButton: false,
+            showRoadLabels: false, 
+          }
+        );
+      } catch (e) {
+        console.error("地圖載入錯誤:", e);
+      }
     }
   };
 
   // 提交猜測
   const submitGuess = () => {
-    if (!selectedCountry || !currentLocation) return;
+    if (!guessLocation || !currentLocation) return;
 
-    const isCorrect = selectedCountry === currentLocation.country;
-    const distance = isCorrect ? 0 : Math.random() * 10000; // 簡化版本
+    // 1. 計算距離
+    const distance = calculateDistance(
+        currentLocation.lat, 
+        currentLocation.lng, 
+        guessLocation.lat, 
+        guessLocation.lng
+    );
+    
+    // 2. 計算分數
     const roundScore = calculateScore(distance);
     
     setLastDistance(distance);
     setLastScore(roundScore);
     setScore(score + roundScore);
     setShowResult(true);
+
+    // 3. 在地圖上顯示正確答案 (綠色標記)
+    if (mapInstanceRef.current) {
+        correctMarkerRef.current = new window.google.maps.Marker({
+            position: { lat: currentLocation.lat, lng: currentLocation.lng },
+            map: mapInstanceRef.current,
+            icon: {
+                url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png" // 綠色
+            }
+        });
+
+        // 4. 畫線連接兩點
+        const lineCoordinates = [
+            { lat: guessLocation.lat, lng: guessLocation.lng },
+            { lat: currentLocation.lat, lng: currentLocation.lng }
+        ];
+
+        polylineRef.current = new window.google.maps.Polyline({
+            path: lineCoordinates,
+            geodesic: true, // 依地球曲率畫線
+            strokeColor: "#FF0000",
+            strokeOpacity: 1.0,
+            strokeWeight: 2,
+        });
+
+        polylineRef.current.setMap(mapInstanceRef.current);
+
+        // 5. 調整地圖縮放以同時顯示兩點
+        const bounds = new window.google.maps.LatLngBounds();
+        bounds.extend({ lat: guessLocation.lat, lng: guessLocation.lng });
+        bounds.extend({ lat: currentLocation.lat, lng: currentLocation.lng });
+        mapInstanceRef.current.fitBounds(bounds);
+    }
 
     if (gameMode === 'multi') {
       updatePlayerScore(roundScore);
@@ -142,25 +218,12 @@ export default function GeoGuessrGame() {
     }
   };
 
-  // 重新開始
-  const restartGame = () => {
-    setScore(0);
-    setRound(1);
-    setGameOver(false);
-    startNewRound();
-  };
-
-  // 創建多人房間
-  const createRoom = async () => {
-    if (!playerName.trim()) {
-      alert('請輸入玩家名稱！');
-      return;
-    }
-    
+  // --- LocalStorage 多人連線邏輯 (與之前相同) ---
+  const createRoom = () => {
+    if (!playerName.trim()) { alert('請輸入玩家名稱！'); return; }
     const code = Math.random().toString(36).substr(2, 6).toUpperCase();
     setMultiRoomCode(code);
     setIsHost(true);
-    
     try {
       const roomData = {
         host: playerName,
@@ -169,155 +232,104 @@ export default function GeoGuessrGame() {
         location: LOCATIONS[0],
         status: 'waiting'
       };
-      
-      await window.storage.set(`room:${code}`, JSON.stringify(roomData), true);
+      localStorage.setItem(`room:${code}`, JSON.stringify(roomData));
       setPlayers([{ name: playerName, score: 0, ready: false }]);
       setGameMode('lobby');
-    } catch (error) {
-      console.error('創建房間失敗:', error);
-      alert('創建房間失敗，請重試');
-    }
+    } catch (error) { console.error(error); }
   };
 
-  // 加入房間
-  const joinRoom = async () => {
-    if (!playerName.trim() || !roomCode.trim()) {
-      alert('請輸入玩家名稱和房間代碼！');
-      return;
-    }
-    
+  const joinRoom = () => {
+    if (!playerName.trim() || !roomCode.trim()) { alert('請輸入資料！'); return; }
     try {
-      const result = await window.storage.get(`room:${roomCode.toUpperCase()}`, true);
-      if (!result) {
-        alert('房間不存在！');
-        return;
+      const storedData = localStorage.getItem(`room:${roomCode.toUpperCase()}`);
+      if (!storedData) { alert('房間不存在！'); return; }
+      const roomData = JSON.parse(storedData);
+      if (!roomData.players.find(p => p.name === playerName)) {
+        roomData.players.push({ name: playerName, score: 0, ready: false });
+        localStorage.setItem(`room:${roomCode.toUpperCase()}`, JSON.stringify(roomData));
       }
-      
-      const roomData = JSON.parse(result.value);
-      roomData.players.push({ name: playerName, score: 0, ready: false });
-      
-      await window.storage.set(`room:${roomCode.toUpperCase()}`, JSON.stringify(roomData), true);
       setMultiRoomCode(roomCode.toUpperCase());
       setPlayers(roomData.players);
       setGameMode('lobby');
-    } catch (error) {
-      console.error('加入房間失敗:', error);
-      alert('加入房間失敗，請重試');
-    }
+    } catch (error) { console.error(error); }
   };
 
-  // 更新玩家分數
-  const updatePlayerScore = async (roundScore) => {
+  const updatePlayerScore = (roundScore) => {
     try {
-      const result = await window.storage.get(`room:${multiRoomCode}`, true);
-      if (result) {
-        const roomData = JSON.parse(result.value);
+      const storedData = localStorage.getItem(`room:${multiRoomCode}`);
+      if (storedData) {
+        const roomData = JSON.parse(storedData);
         const playerIndex = roomData.players.findIndex(p => p.name === playerName);
         if (playerIndex !== -1) {
           roomData.players[playerIndex].score += roundScore;
-          await window.storage.set(`room:${multiRoomCode}`, JSON.stringify(roomData), true);
+          localStorage.setItem(`room:${multiRoomCode}`, JSON.stringify(roomData));
         }
       }
-    } catch (error) {
-      console.error('更新分數失敗:', error);
-    }
+    } catch (error) { console.error(error); }
   };
 
-  // 完成多人遊戲
-  const finalizeMultiGame = async () => {
+  const finalizeMultiGame = () => {
     try {
-      const result = await window.storage.get(`room:${multiRoomCode}`, true);
-      if (result) {
-        const roomData = JSON.parse(result.value);
+      const storedData = localStorage.getItem(`room:${multiRoomCode}`);
+      if (storedData) {
+        const roomData = JSON.parse(storedData);
         roomData.status = 'finished';
-        await window.storage.set(`room:${multiRoomCode}`, JSON.stringify(roomData), true);
+        localStorage.setItem(`room:${multiRoomCode}`, JSON.stringify(roomData));
         setPlayers(roomData.players);
       }
-    } catch (error) {
-      console.error('完成遊戲失敗:', error);
-    }
+    } catch (error) { console.error(error); }
   };
 
-  // 載入 Google Maps API
   useEffect(() => {
-    // 檢查是否已經載入過
+    if (gameMode === 'lobby' || gameMode === 'multi') {
+        const interval = setInterval(() => {
+            const storedData = localStorage.getItem(`room:${multiRoomCode}`);
+            if (storedData) setPlayers(JSON.parse(storedData).players);
+        }, 1000);
+        return () => clearInterval(interval);
+    }
+  }, [gameMode, multiRoomCode]);
+
+  useEffect(() => {
     if (!window.google) {
-      const script = document.createElement('script');
-      
-      // 修改這裡：使用 import.meta.env 來讀取變數
-      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-      
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-      
-      return () => {
-        // 清理邏輯
-      };
+        const script = document.createElement('script');
+        // 請確保這裡有正確讀取 .env
+        const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
     }
   }, []);
 
-  // 主選單
+  // --- UI Render ---
+
   if (gameMode === 'menu') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-8">
             <Globe className="w-20 h-20 mx-auto mb-4 text-blue-500" />
-            <h1 className="text-4xl font-bold text-gray-800 mb-2">地理猜測</h1>
-            <p className="text-gray-600">猜猜這是哪個國家？</p>
+            <h1 className="text-4xl font-bold text-gray-800 mb-2">GeoGuessr</h1>
+            <p className="text-gray-600">看街景，猜地圖！</p>
           </div>
-          
           <div className="space-y-4">
             <button
-              onClick={() => {
-                setGameMode('single');
-                startNewRound();
-              }}
+              onClick={() => { setGameMode('single'); startNewRound(); }}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition"
             >
-              <Play className="w-6 h-6" />
-              單人遊戲
+              <Play className="w-6 h-6" /> 單人遊戲
             </button>
-            
             <div className="border-t pt-4">
               <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                多人連線
+                <Users className="w-5 h-5" /> 多人連線 (本機)
               </h3>
-              
-              <input
-                type="text"
-                placeholder="輸入你的名稱"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                className="w-full p-3 border rounded-lg mb-3"
-              />
-              
+              <input type="text" placeholder="輸入名稱" value={playerName} onChange={(e) => setPlayerName(e.target.value)} className="w-full p-3 border rounded-lg mb-3" />
               <div className="space-y-2">
-                <button
-                  onClick={createRoom}
-                  className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition"
-                >
-                  創建房間
-                </button>
-                
+                <button onClick={createRoom} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">創建房間</button>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="房間代碼"
-                    value={roomCode}
-                    onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                    className="flex-1 p-3 border rounded-lg"
-                    maxLength={6}
-                  />
-                  <button
-                    onClick={joinRoom}
-                    className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-lg transition"
-                  >
-                    加入
-                  </button>
+                  <input type="text" placeholder="房間代碼" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} className="flex-1 p-3 border rounded-lg" maxLength={6} />
+                  <button onClick={joinRoom} className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-lg transition">加入</button>
                 </div>
               </div>
             </div>
@@ -327,229 +339,117 @@ export default function GeoGuessrGame() {
     );
   }
 
-  // 大廳
   if (gameMode === 'lobby') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-6">
             <h2 className="text-3xl font-bold text-gray-800 mb-2">遊戲大廳</h2>
-            <p className="text-2xl font-mono font-bold text-blue-600">房間代碼: {multiRoomCode}</p>
+            <p className="text-2xl font-mono font-bold text-blue-600">{multiRoomCode}</p>
           </div>
-          
           <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              玩家列表 ({players.length})
-            </h3>
+            <h3 className="font-bold text-gray-700 mb-3">玩家列表 ({players.length})</h3>
             <div className="space-y-2">
-              {players.map((player, idx) => (
-                <div key={idx} className="bg-white p-3 rounded-lg flex justify-between items-center">
-                  <span className="font-semibold">{player.name}</span>
-                  <span className="text-sm text-gray-500">
-                    {player.name === playerName && '(你)'}
-                  </span>
-                </div>
+              {players.map((p, i) => (
+                <div key={i} className="bg-white p-3 rounded-lg flex justify-between"><span className="font-semibold">{p.name}</span></div>
               ))}
             </div>
           </div>
-          
           <div className="space-y-3">
-            {isHost && (
-              <button
-                onClick={() => {
-                  setGameMode('multi');
-                  startNewRound();
-                }}
-                className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition"
-              >
-                開始遊戲
-              </button>
-            )}
-            
-            <button
-              onClick={() => {
-                setGameMode('menu');
-                setMultiRoomCode('');
-                setPlayers([]);
-              }}
-              className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition"
-            >
-              離開房間
-            </button>
+            {isHost && <button onClick={() => { setGameMode('multi'); startNewRound(); }} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">開始遊戲</button>}
+            <button onClick={() => { setGameMode('menu'); setMultiRoomCode(''); setPlayers([]); }} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition">離開</button>
           </div>
         </div>
       </div>
     );
   }
 
-  // 遊戲結束
   if (gameOver) {
     const sortedPlayers = gameMode === 'multi' ? [...players].sort((a, b) => b.score - a.score) : [];
-    
     return (
       <div className="min-h-screen bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-6">
             <Trophy className="w-20 h-20 mx-auto mb-4 text-yellow-500" />
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">遊戲結束！</h2>
-            {gameMode === 'single' && (
-              <p className="text-5xl font-bold text-blue-600">{score} 分</p>
-            )}
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">遊戲結束</h2>
+            {gameMode === 'single' && <p className="text-5xl font-bold text-blue-600">{score} 分</p>}
           </div>
-          
           {gameMode === 'multi' && (
             <div className="bg-gray-50 rounded-xl p-4 mb-6">
-              <h3 className="font-bold text-gray-700 mb-3">排行榜</h3>
               <div className="space-y-2">
-                {sortedPlayers.map((player, idx) => (
-                  <div key={idx} className="bg-white p-3 rounded-lg flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">
-                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`}
-                      </span>
-                      <span className="font-semibold">{player.name}</span>
-                    </div>
-                    <span className="font-bold text-blue-600">{player.score}</span>
-                  </div>
+                {sortedPlayers.map((p, i) => (
+                  <div key={i} className="bg-white p-3 rounded-lg flex justify-between"><span className="font-semibold">{i+1}. {p.name}</span><span className="font-bold text-blue-600">{p.score}</span></div>
                 ))}
               </div>
             </div>
           )}
-          
-          <div className="space-y-3">
-            <button
-              onClick={() => {
-                setGameMode('menu');
-                setScore(0);
-                setRound(1);
-                setGameOver(false);
-                setMultiRoomCode('');
-                setPlayers([]);
-              }}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition"
-            >
-              <Home className="w-5 h-5" />
-              回到主選單
-            </button>
-          </div>
+          <button onClick={() => { setGameMode('menu'); setScore(0); setRound(1); setGameOver(false); }} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition"><Home className="w-5 h-5" /> 回主選單</button>
         </div>
       </div>
     );
   }
 
-  // 遊戲進行中
+  // 遊戲畫面
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* 頂部資訊欄 */}
-      <div className="bg-white shadow-md p-4">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
+      {/* 頂部資訊 */}
+      <div className="bg-white shadow-md p-4 z-10">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-6">
-            <div>
-              <span className="text-sm text-gray-600">回合</span>
-              <p className="text-2xl font-bold text-blue-600">{round}/{maxRounds}</p>
-            </div>
-            <div>
-              <span className="text-sm text-gray-600">分數</span>
-              <p className="text-2xl font-bold text-green-600">{score}</p>
-            </div>
-            {gameMode === 'multi' && (
-              <div>
-                <span className="text-sm text-gray-600">房間</span>
-                <p className="text-lg font-mono font-bold">{multiRoomCode}</p>
-              </div>
-            )}
+            <div><span className="text-sm text-gray-600">回合</span><p className="text-2xl font-bold text-blue-600">{round}/{maxRounds}</p></div>
+            <div><span className="text-sm text-gray-600">分數</span><p className="text-2xl font-bold text-green-600">{score}</p></div>
           </div>
-          
-          <button
-            onClick={() => {
-              setGameMode('menu');
-              setScore(0);
-              setRound(1);
-              setGameOver(false);
-            }}
-            className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
-          >
-            離開遊戲
-          </button>
+          <button onClick={() => setGameMode('menu')} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">離開</button>
         </div>
       </div>
 
-      {/* 主遊戲區域 */}
-      <div className="flex-1 flex flex-col lg:flex-row">
-        {/* 街景視圖 */}
-        <div className="flex-1 relative bg-gray-800">
-          <div ref={panoramaRef} className="w-full h-full min-h-[400px]">
+      {/* 遊戲區域：改為分割畫面 */}
+      <div className="flex-1 flex flex-col md:flex-row h-full relative">
+        
+        {/* 左/上：街景 (占 70% 寬度) */}
+        <div className="w-full md:w-[70%] h-[50vh] md:h-auto relative bg-black">
+          <div ref={panoramaRef} className="w-full h-full">
             <div className="flex items-center justify-center h-full text-white">
-              <div className="text-center">
-                <Globe className="w-16 h-16 mx-auto mb-4 animate-spin" />
                 <p>載入街景中...</p>
-                <p className="text-sm text-gray-400 mt-2">需要 Google Maps API Key</p>
-              </div>
             </div>
           </div>
-        </div>
-
-        {/* 猜測面板 */}
-        <div className="w-full lg:w-96 bg-white p-6 shadow-lg">
-          <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <MapPin className="w-6 h-6 text-red-500" />
-            選擇國家
-          </h3>
           
-          <div className="space-y-2 mb-6 max-h-96 overflow-y-auto">
-            {countryOptions.map((country) => (
-              <button
-                key={country}
-                onClick={() => setSelectedCountry(country)}
-                disabled={showResult}
-                className={`w-full p-3 rounded-lg text-left transition ${
-                  selectedCountry === country
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
-                } ${showResult ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {country}
-              </button>
-            ))}
-          </div>
-
+          {/* 結果覆蓋層 (可選，顯示在街景上) */}
           {showResult && (
-            <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-              <h4 className="font-bold text-gray-800 mb-2">結果</h4>
-              <p className="text-sm text-gray-600">
-                正確答案: <span className="font-bold">{currentLocation.country}</span>
-              </p>
-              <p className="text-sm text-gray-600">
-                你的猜測: <span className="font-bold">{selectedCountry}</span>
-              </p>
-              <p className="text-lg font-bold text-green-600 mt-2">
-                +{lastScore} 分
-              </p>
+            <div className="absolute bottom-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg backdrop-blur-sm z-10">
+               <h3 className="font-bold text-lg mb-1">本局結果</h3>
+               <p>距離誤差: <span className="font-bold text-red-500">{Math.round(lastDistance)} km</span></p>
+               <p>本局得分: <span className="font-bold text-green-600">+{lastScore}</span></p>
+               <button onClick={nextRound} className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
+                 {round >= maxRounds ? '查看總分' : '下一回合'}
+               </button>
             </div>
           )}
-
-          {!showResult ? (
-            <button
-              onClick={submitGuess}
-              disabled={!selectedCountry}
-              className={`w-full font-bold py-3 px-6 rounded-lg transition ${
-                selectedCountry
-                  ? 'bg-green-500 hover:bg-green-600 text-white'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              提交答案
-            </button>
-          ) : (
-            <button
-              onClick={nextRound}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg transition"
-            >
-              {round >= maxRounds ? '查看結果' : '下一回合'}
-            </button>
-          )}
         </div>
+
+        {/* 右/下：猜測地圖 (占 30% 寬度) */}
+        <div className="w-full md:w-[30%] h-[40vh] md:h-auto relative border-l-4 border-white z-20 shadow-2xl">
+           {/* 地圖容器 */}
+           <div ref={guessMapRef} className="w-full h-full bg-gray-200 cursor-crosshair"></div>
+           
+           {/* 確認按鈕 (浮在地图下方) */}
+           {!showResult && (
+             <div className="absolute bottom-6 left-0 right-0 px-6 pointer-events-none">
+               <button 
+                 onClick={submitGuess}
+                 disabled={!guessLocation}
+                 className={`w-full py-4 rounded-xl font-bold text-lg shadow-xl pointer-events-auto transition transform hover:scale-105 ${
+                    guessLocation 
+                    ? 'bg-green-500 text-white hover:bg-green-600' 
+                    : 'bg-gray-800/50 text-gray-300 cursor-not-allowed'
+                 }`}
+               >
+                 {guessLocation ? '確定猜測' : '點擊地圖選擇位置'}
+               </button>
+             </div>
+           )}
+        </div>
+
       </div>
     </div>
   );
