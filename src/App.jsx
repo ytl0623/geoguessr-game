@@ -55,7 +55,7 @@ export default function GeoGuessrGame() {
   const [guessLocation, setGuessLocation] = useState(null); 
   const [score, setScore] = useState(0);
   const [round, setRound] = useState(1);
-  const [maxRounds] = useState(10);
+  const [maxRounds] = useState(5);
   const [gameOver, setGameOver] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [lastDistance, setLastDistance] = useState(null);
@@ -102,7 +102,7 @@ export default function GeoGuessrGame() {
   };
 
   const getRandomOffset = (lat, lng) => {
-    const offset = 0.5; 
+    const offset = 0.01; 
     const newLat = lat + (Math.random() - 0.5) * offset * 2;
     const newLng = lng + (Math.random() - 0.5) * offset * 2;
     return { lat: newLat, lng: newLng };
