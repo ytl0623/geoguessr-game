@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon } from 'lucide-react';
+import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock } from 'lucide-react';
 // Import Firebase
 import { db } from './firebase';
 import { ref, set, onValue, update, get } from "firebase/database";
@@ -55,16 +55,17 @@ export default function GeoGuessrGame() {
   const [guessLocation, setGuessLocation] = useState(null); 
   const [score, setScore] = useState(0);
   const [round, setRound] = useState(1);
-  const [maxRounds] = useState(10);
+  const [maxRounds] = useState(5);
   const [gameOver, setGameOver] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [lastDistance, setLastDistance] = useState(null);
   const [lastScore, setLastScore] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Multiplayer State
   const [roomCode, setRoomCode] = useState('');
   const [playerName, setPlayerName] = useState('');
-  const [players, setPlayers] = useState([]);
+  const [players, setPlayers] = useState([]); // Array of {name, score, id, roundComplete}
   const [isHost, setIsHost] = useState(false);
   const [multiRoomCode, setMultiRoomCode] = useState('');
   const [playerId, setPlayerId] = useState(''); 
@@ -77,7 +78,7 @@ export default function GeoGuessrGame() {
   const correctMarkerRef = useRef(null); 
   const polylineRef = useRef(null); 
 
-  // Cleanup map instance on mode change
+  // Cleanup
   useEffect(() => {
     if (gameMode !== 'single' && gameMode !== 'multi') {
         mapInstanceRef.current = null;
@@ -101,25 +102,61 @@ export default function GeoGuessrGame() {
   };
 
   const getRandomOffset = (lat, lng) => {
-    // 稍微縮小範圍以確保容易找到路，但還是保留隨機性 (約 55km)
     const offset = 0.5; 
     const newLat = lat + (Math.random() - 0.5) * offset * 2;
     const newLng = lng + (Math.random() - 0.5) * offset * 2;
     return { lat: newLat, lng: newLng };
   };
 
-  const generateNewLocation = () => {
+  const generateRandomCoords = () => {
     const randomLocation = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
     const randomOffset = getRandomOffset(randomLocation.lat, randomLocation.lng);
     return {
-        ...randomLocation,
         lat: randomOffset.lat,
-        lng: randomOffset.lng
+        lng: randomOffset.lng,
+        country: randomLocation.country,
+        city: randomLocation.city
     };
   };
 
-  // --- Map & Street View Logic (The Fix is Here) ---
-  
+  // --- Pre-validation Logic ---
+  const getValidStreetViewLocation = async () => {
+    if (!window.google) return null;
+    const sv = new window.google.maps.StreetViewService();
+    
+    let attempts = 0;
+    let foundLocation = null;
+
+    while (!foundLocation && attempts < 5) {
+        attempts++;
+        const candidate = generateRandomCoords();
+        
+        try {
+            const result = await new Promise((resolve, reject) => {
+                sv.getPanorama({ 
+                    location: { lat: candidate.lat, lng: candidate.lng }, 
+                    radius: 100000, 
+                    preference: 'nearest'
+                }, (data, status) => {
+                    if (status === 'OK') resolve(data);
+                    else reject(status);
+                });
+            });
+
+            foundLocation = {
+                lat: result.location.latLng.lat(),
+                lng: result.location.latLng.lng(),
+                country: candidate.country,
+                city: candidate.city
+            };
+        } catch (error) {
+            console.log(`Attempt ${attempts} failed, retrying...`);
+        }
+    }
+    return foundLocation || LOCATIONS[0];
+  };
+
+  // --- Map & Street View ---
   const initGuessMap = () => {
     if (window.google && guessMapRef.current && !mapInstanceRef.current) {
       mapInstanceRef.current = new window.google.maps.Map(guessMapRef.current, {
@@ -146,61 +183,21 @@ export default function GeoGuessrGame() {
     }
   };
 
-  // --- 關鍵修正：確保 Street View 一定會出現 ---
   const loadStreetView = (location) => {
     if (window.google && panoramaRef.current) {
-      const sv = new window.google.maps.StreetViewService();
-      
-      // 1. 搜尋半徑設為 100km (非常大)，確保一定找得到路
-      // 2. preference: 'nearest' 強制找最近的
-      sv.getPanorama({ 
-          location: { lat: location.lat, lng: location.lng }, 
-          radius: 100000,
-          preference: 'nearest'
-      }, (data, status) => {
-        if (status === 'OK') {
-            // 成功：載入畫面
-            const panorama = new window.google.maps.StreetViewPanorama(
-                panoramaRef.current,
-                {
-                  position: data.location.latLng,
-                  pov: { heading: 165, pitch: 0 },
-                  zoom: 1,
-                  disableDefaultUI: true,
-                  linksControl: false,
-                  panControl: false,
-                  enableCloseButton: false,
-                  showRoadLabels: false, 
-                }
-            );
-            
-            // 重要：修正 CurrentLocation 為「真正找到的位置」，避免計分誤差
-            setCurrentLocation(prev => ({
-                ...prev,
-                lat: data.location.latLng.lat(),
-                lng: data.location.latLng.lng()
-            }));
-
-        } else {
-            // 失敗：自動重試 (Recursive Retry)
-            console.warn("Location invalid (no street view), retrying...");
-            
-            // 如果我是房主或單人玩家，我有權利決定換下一題
-            if (gameMode === 'single' || isHost) {
-                const newLocation = generateNewLocation();
-                
-                if (gameMode === 'multi') {
-                    // 多人模式：告訴 Firebase 換題目，所有人都會自動重整
-                    update(ref(db, `rooms/${multiRoomCode}`), {
-                        currentLocation: newLocation
-                    });
-                } else {
-                    // 單人模式：直接重跑
-                    startNewRound(newLocation);
-                }
+        new window.google.maps.StreetViewPanorama(
+            panoramaRef.current,
+            {
+                position: { lat: location.lat, lng: location.lng },
+                pov: { heading: 165, pitch: 0 },
+                zoom: 1,
+                disableDefaultUI: true,
+                linksControl: false,
+                panControl: false,
+                enableCloseButton: false,
+                showRoadLabels: false, 
             }
-        }
-      });
+        );
     }
   };
 
@@ -210,6 +207,7 @@ export default function GeoGuessrGame() {
     setShowResult(false);
     setLastDistance(null);
     setLastScore(null);
+    setIsLoading(false);
     
     if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
     if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
@@ -260,31 +258,47 @@ export default function GeoGuessrGame() {
         mapInstanceRef.current.fitBounds(bounds);
     }
 
+    // Multiplayer: Update Score AND Round Complete Status
     if (gameMode === 'multi' && multiRoomCode && playerId) {
         update(ref(db, `rooms/${multiRoomCode}/players/${playerId}`), {
-            score: newTotalScore
+            score: newTotalScore,
+            roundComplete: true // 標記為已答題
         });
     }
   };
 
-  const handleNextRoundAction = () => {
+  const handleNextRoundAction = async () => {
+    setIsLoading(true);
+
     if (gameMode === 'single') {
         if (round >= maxRounds) {
             setGameOver(true);
+            setIsLoading(false);
         } else {
             setRound(round + 1);
-            startNewRound(generateNewLocation());
+            const nextLocation = await getValidStreetViewLocation();
+            startNewRound(nextLocation);
         }
     } else if (gameMode === 'multi' && isHost) {
+        // 房主觸發下一回合
         if (round >= maxRounds) {
             update(ref(db, `rooms/${multiRoomCode}`), { status: 'finished' });
+            setIsLoading(false);
         } else {
             const nextRoundNum = round + 1;
-            const nextLocation = generateNewLocation();
-            update(ref(db, `rooms/${multiRoomCode}`), {
-                round: nextRoundNum,
-                currentLocation: nextLocation
+            const nextLocation = await getValidStreetViewLocation();
+            
+            // 建立更新物件，一次性更新多個路徑
+            const updates = {};
+            updates[`rooms/${multiRoomCode}/round`] = nextRoundNum;
+            updates[`rooms/${multiRoomCode}/currentLocation`] = nextLocation;
+            
+            // 重置所有玩家的 roundComplete 為 false
+            players.forEach(p => {
+                 updates[`rooms/${multiRoomCode}/players/${p.id}/roundComplete`] = false;
             });
+
+            await update(ref(db), updates);
         }
     }
   };
@@ -293,11 +307,12 @@ export default function GeoGuessrGame() {
 
   const createRoom = async () => {
     if (!playerName.trim()) { alert('Please enter player name!'); return; }
+    setIsLoading(true);
     
     const newRoomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
     const newPlayerId = Date.now().toString(); 
     
-    const initialLocation = generateNewLocation();
+    const initialLocation = await getValidStreetViewLocation();
 
     const roomData = {
         host: playerName,
@@ -305,7 +320,7 @@ export default function GeoGuessrGame() {
         round: 1,
         currentLocation: initialLocation,
         players: {
-            [newPlayerId]: { name: playerName, score: 0 }
+            [newPlayerId]: { name: playerName, score: 0, roundComplete: false }
         }
     };
 
@@ -317,7 +332,9 @@ export default function GeoGuessrGame() {
         setGameMode('lobby');
     } catch (error) {
         console.error("Firebase Error:", error);
-        alert("Failed to create room. Check console.");
+        alert("Failed to create room.");
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -331,7 +348,7 @@ export default function GeoGuessrGame() {
         const snapshot = await get(roomRef);
         if (snapshot.exists()) {
             await update(ref(db, `rooms/${code}/players`), {
-                [newPlayerId]: { name: playerName, score: 0 }
+                [newPlayerId]: { name: playerName, score: 0, roundComplete: false }
             });
             
             setMultiRoomCode(code);
@@ -358,7 +375,6 @@ export default function GeoGuessrGame() {
     const unsubscribe = onValue(roomRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
-            // 1. Sync Players List
             if (data.players) {
                 const playerList = Object.entries(data.players).map(([key, val]) => ({
                     id: key,
@@ -367,7 +383,6 @@ export default function GeoGuessrGame() {
                 setPlayers(playerList);
             }
 
-            // 2. Handle Game Status Changes (Lobby -> Playing)
             if (data.status === 'playing' && gameMode === 'lobby') {
                 setGameMode('multi');
                 if (data.currentLocation) {
@@ -377,10 +392,7 @@ export default function GeoGuessrGame() {
                 setGameOver(true);
             }
 
-            // 3. Handle Round Changes
             if (data.status === 'playing') {
-                // 🔴 修改重點：只看 Round 是否改變，絕對不要比對 currentLocation 的座標！
-                // 因為 loadStreetView 會微調座標，比對座標會造成無限迴圈閃爍
                 if (data.round !== round) {
                     setRound(data.round);
                     if (data.currentLocation) {
@@ -406,8 +418,79 @@ export default function GeoGuessrGame() {
     }
   }, []);
 
-  // --- UI RENDER ---
+  // --- UI Components ---
 
+  const renderMultiplayerStatus = () => {
+    if (gameMode !== 'multi') return null;
+    
+    // 檢查是否所有人都完成了
+    const allFinished = players.every(p => p.roundComplete);
+
+    return (
+        <div className="mt-4 border-t pt-2">
+            <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2">
+                <Users className="w-4 h-4" /> Players Status
+            </h4>
+            <div className="space-y-1 text-sm max-h-32 overflow-y-auto">
+                {players.map(p => (
+                    <div key={p.id} className="flex justify-between items-center bg-gray-50 p-2 rounded">
+                        <div className="flex items-center gap-2">
+                            {p.roundComplete ? 
+                                <CheckCircle className="w-4 h-4 text-green-500" /> : 
+                                <Clock className="w-4 h-4 text-orange-500 animate-pulse" />
+                            }
+                            <span className={p.id === playerId ? "font-bold" : ""}>
+                                {p.name} {p.id === playerId ? '(You)' : ''}
+                            </span>
+                        </div>
+                        <span className="font-mono font-bold text-blue-600">{p.score} pts</span>
+                    </div>
+                ))}
+            </div>
+            
+            {/* 房主專屬控制區 */}
+            {isHost && (
+                <div className="mt-3">
+                    {!allFinished ? (
+                        <p className="text-xs text-red-500 italic text-center">Waiting for everyone to finish...</p>
+                    ) : (
+                        <p className="text-xs text-green-600 italic text-center mb-1">All players ready!</p>
+                    )}
+                    
+                    <button 
+                        onClick={handleNextRoundAction} 
+                        disabled={!allFinished} // 只有當所有人都完成時，按鈕才啟用
+                        className={`w-full py-2 rounded-lg font-bold transition ${
+                            allFinished 
+                            ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        }`}
+                    >
+                        {round >= maxRounds ? 'View Final Results' : 'Next Round'}
+                    </button>
+                </div>
+            )}
+            
+            {!isHost && (
+                <div className="mt-3 text-center text-gray-500 text-xs italic">
+                    {allFinished ? "Waiting for host to start next round..." : "Waiting for other players..."}
+                </div>
+            )}
+        </div>
+    );
+  };
+
+  // --- Loading Screen ---
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-blue-600 flex flex-col items-center justify-center text-white">
+        <Globe className="w-16 h-16 animate-spin mb-4" />
+        <h2 className="text-2xl font-bold">Loading...</h2>
+      </div>
+    );
+  }
+
+  // --- Menu ---
   if (gameMode === 'menu') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
@@ -419,9 +502,11 @@ export default function GeoGuessrGame() {
           </div>
           <div className="space-y-4">
             <button
-              onClick={() => { 
+              onClick={async () => { 
                   setGameMode('single'); 
-                  startNewRound(generateNewLocation()); 
+                  setIsLoading(true);
+                  const startLoc = await getValidStreetViewLocation();
+                  startNewRound(startLoc); 
               }}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition"
             >
@@ -446,6 +531,7 @@ export default function GeoGuessrGame() {
     );
   }
 
+  // --- Lobby ---
   if (gameMode === 'lobby') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4">
@@ -478,6 +564,7 @@ export default function GeoGuessrGame() {
     );
   }
 
+  // --- Game Over ---
   if (gameOver) {
     const sortedPlayers = gameMode === 'multi' ? [...players].sort((a, b) => b.score - a.score) : [];
     return (
@@ -507,10 +594,9 @@ export default function GeoGuessrGame() {
     );
   }
 
-  // Game Interface
+  // --- Main Game Interface ---
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* Top Bar */}
       <div className="bg-white shadow-md p-4 z-10">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-6">
@@ -523,7 +609,7 @@ export default function GeoGuessrGame() {
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row h-full relative">
-        {/* Left/Top: Street View (70%) */}
+        {/* Left: Street View */}
         <div className="w-full md:w-[70%] h-[50vh] md:h-auto relative bg-black">
           <div ref={panoramaRef} className="w-full h-full">
             <div className="flex items-center justify-center h-full text-white">
@@ -531,26 +617,27 @@ export default function GeoGuessrGame() {
             </div>
           </div>
           
-          {/* Result Overlay (Moved to Bottom Right) */}
+          {/* Result Overlay */}
           {showResult && (
-            <div className="absolute bottom-4 right-4 bg-white/90 p-4 rounded-xl shadow-lg backdrop-blur-sm z-10">
+            <div className="absolute bottom-4 right-4 bg-white/95 p-4 rounded-xl shadow-lg backdrop-blur-sm z-30 min-w-[300px]">
                <h3 className="font-bold text-lg mb-1">Round Result</h3>
                <p>Distance: <span className="font-bold text-red-500">{Math.round(lastDistance)} km</span></p>
                <p>Score: <span className="font-bold text-green-600">+{lastScore}</span></p>
                
-               {/* Show NEXT button only if Single Player or Host in Multiplayer */}
-               {(gameMode === 'single' || isHost) ? (
+               {/* 顯示多人對戰狀態 */}
+               {gameMode === 'multi' && renderMultiplayerStatus()}
+
+               {/* 單人模式直接顯示按鈕 */}
+               {gameMode === 'single' && (
                    <button onClick={handleNextRoundAction} className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
                      {round >= maxRounds ? 'View Total' : 'Next Round'}
                    </button>
-               ) : (
-                   <div className="mt-3 text-sm text-gray-600 italic">Waiting for host...</div>
                )}
             </div>
           )}
         </div>
 
-        {/* Right/Bottom: Guess Map (30%) */}
+        {/* Right: Map */}
         <div className="w-full md:w-[30%] h-[40vh] md:h-auto relative border-l-4 border-white z-20 shadow-2xl">
            <div ref={guessMapRef} className="w-full h-full bg-gray-200 cursor-crosshair"></div>
            {!showResult && (
