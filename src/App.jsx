@@ -3,22 +3,53 @@ import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon } from 'lucide
 
 // 預設位置庫
 const LOCATIONS = [
-  { lat: 48.8584, lng: 2.2945, country: '法國', city: '巴黎' },
-  { lat: 35.6762, lng: 139.6503, country: '日本', city: '東京' },
-  { lat: 40.7128, lng: -74.0060, country: '美國', city: '紐約' },
-  { lat: 51.5074, lng: -0.1278, country: '英國', city: '倫敦' },
-  { lat: -33.8688, lng: 151.2093, country: '澳洲', city: '雪梨' },
-  { lat: 41.9028, lng: 12.4964, country: '義大利', city: '羅馬' },
-  { lat: 25.0330, lng: 121.5654, country: '台灣', city: '台北' },
-  { lat: 55.7558, lng: 37.6173, country: '俄羅斯', city: '莫斯科' },
-  { lat: -22.9068, lng: -43.1729, country: '巴西', city: '里約' },
-  { lat: 30.0444, lng: 31.2357, country: '埃及', city: '開羅' },
+  {"lat": 25.0339, "lng": 121.5644, "country": "台灣", "city": "台北 (101)"},
+  {"lat": 22.6273, "lng": 120.2866, "country": "台灣", "city": "高雄 (駁二)"},
+  {"lat": 24.1477, "lng": 120.6736, "country": "台灣", "city": "台中 (火車站)"},
+  {"lat": 35.6586, "lng": 139.7454, "country": "日本", "city": "東京 (鐵塔)"},
+  {"lat": 34.6937, "lng": 135.5023, "country": "日本", "city": "大阪 (中之島)"},
+  {"lat": 35.0116, "lng": 135.7681, "country": "日本", "city": "京都 (鴨川)"},
+  {"lat": 37.5665, "lng": 126.9780, "country": "韓國", "city": "首爾"},
+  {"lat": 22.2855, "lng": 114.1577, "country": "香港", "city": "中環"},
+  {"lat": 13.7563, "lng": 100.5018, "country": "泰國", "city": "曼谷"},
+  {"lat": 1.2868, "lng": 103.8545, "country": "新加坡", "city": "魚尾獅公園"},
+  {"lat": 48.8584, "lng": 2.2945, "country": "法國", "city": "巴黎 (艾菲爾鐵塔)"},
+  {"lat": 51.5007, "lng": -0.1246, "country": "英國", "city": "倫敦 (大笨鐘)"},
+  {"lat": 41.9028, "lng": 12.4964, "country": "義大利", "city": "羅馬 (競技場)"},
+  {"lat": 45.4408, "lng": 12.3155, "country": "義大利", "city": "威尼斯"},
+  {"lat": 52.5200, "lng": 13.4050, "country": "德國", "city": "柏林"},
+  {"lat": 48.2082, "lng": 16.3738, "country": "奧地利", "city": "維也納"},
+  {"lat": 50.0755, "lng": 14.4378, "country": "捷克", "city": "布拉格"},
+  {"lat": 47.4979, "lng": 19.0402, "country": "匈牙利", "city": "布達佩斯"},
+  {"lat": 41.3851, "lng": 2.1734, "country": "西班牙", "city": "巴塞隆納"},
+  {"lat": 59.3293, "lng": 18.0686, "country": "瑞典", "city": "斯德哥爾摩"},
+  {"lat": 55.7522, "lng": 37.6175, "country": "俄羅斯", "city": "莫斯科 (紅場)"},
+  {"lat": 40.7580, "lng": -73.9855, "country": "美國", "city": "紐約 (時代廣場)"},
+  {"lat": 37.8199, "lng": -122.4783, "country": "美國", "city": "舊金山 (金門大橋)"},
+  {"lat": 36.1699, "lng": -115.1398, "country": "美國", "city": "拉斯維加斯"},
+  {"lat": 41.8781, "lng": -87.6298, "country": "美國", "city": "芝加哥"},
+  {"lat": 25.7617, "lng": -80.1918, "country": "美國", "city": "邁阿密"},
+  {"lat": 34.0522, "lng": -118.2437, "country": "美國", "city": "洛杉磯"},
+  {"lat": 49.2827, "lng": -123.1207, "country": "加拿大", "city": "溫哥華"},
+  {"lat": 43.6532, "lng": -79.3832, "country": "加拿大", "city": "多倫多"},
+  {"lat": 19.4326, "lng": -99.1332, "country": "墨西哥", "city": "墨西哥城"},
+  {"lat": -22.9519, "lng": -43.2105, "country": "巴西", "city": "里約 (基督像)"},
+  {"lat": -34.6037, "lng": -58.3816, "country": "阿根廷", "city": "布宜諾斯艾利斯"},
+  {"lat": -33.4489, "lng": -70.6693, "country": "智利", "city": "聖地牙哥"},
+  {"lat": -33.8568, "lng": 151.2153, "country": "澳洲", "city": "雪梨 (歌劇院)"},
+  {"lat": -37.8136, "lng": 144.9631, "country": "澳洲", "city": "墨爾本"},
+  {"lat": -36.8485, "lng": 174.7633, "country": "紐西蘭", "city": "奧克蘭"},
+  {"lat": 30.0444, "lng": 31.2357, "country": "埃及", "city": "開羅"},
+  {"lat": -33.9249, "lng": 18.4241, "country": "南非", "city": "開普敦"},
+  {"lat": 25.1972, "lng": 55.2744, "country": "阿聯酋", "city": "杜拜 (哈里發塔)"},
+  {"lat": 32.0853, "lng": 34.7818, "country": "以色列", "city": "特拉維夫"},
+  {"lat": 41.0082, "lng": 28.9784, "country": "土耳其", "city": "伊斯坦堡"}
 ];
 
 export default function GeoGuessrGame() {
   const [gameMode, setGameMode] = useState('menu'); 
   const [currentLocation, setCurrentLocation] = useState(null);
-  const [guessLocation, setGuessLocation] = useState(null); // 儲存使用者點擊的座標 {lat, lng}
+  const [guessLocation, setGuessLocation] = useState(null); 
   const [score, setScore] = useState(0);
   const [round, setRound] = useState(1);
   const [maxRounds] = useState(10);
@@ -35,14 +66,14 @@ export default function GeoGuessrGame() {
   const [multiRoomCode, setMultiRoomCode] = useState('');
   
   // Refs
-  const panoramaRef = useRef(null); // 街景 DOM
-  const guessMapRef = useRef(null); // 猜測地圖 DOM
-  const mapInstanceRef = useRef(null); // 猜測地圖的 Google Map 實例
-  const guessMarkerRef = useRef(null); // 使用者猜測的標記
-  const correctMarkerRef = useRef(null); // 正確答案的標記
-  const polylineRef = useRef(null); // 連接兩點的線
+  const panoramaRef = useRef(null); 
+  const guessMapRef = useRef(null); 
+  const mapInstanceRef = useRef(null); 
+  const guessMarkerRef = useRef(null); 
+  const correctMarkerRef = useRef(null); 
+  const polylineRef = useRef(null); 
 
-  // 計算兩點間距離（Haversine 公式）- 單位：公里
+  // 計算距離
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -54,104 +85,127 @@ export default function GeoGuessrGame() {
     return R * c;
   };
 
-  // 根據距離計算分數 (指數遞減，越近越高分)
+  // 計算分數
   const calculateScore = (distance) => {
-    // 5000 * e^(-distance / 2000) 是一個常見的算法
-    // 距離 0km = 5000分
-    // 距離 2000km ≈ 1800分
-    // 距離 10000km ≈ 30分
     return Math.round(5000 * Math.exp(-distance / 2000));
   };
 
-  // 初始化猜測地圖 (2D Map)
+  // 初始化猜測地圖
   const initGuessMap = () => {
     if (window.google && guessMapRef.current && !mapInstanceRef.current) {
       mapInstanceRef.current = new window.google.maps.Map(guessMapRef.current, {
         center: { lat: 0, lng: 0 },
         zoom: 2,
-        disableDefaultUI: true, // 簡化介面
+        disableDefaultUI: true, 
         clickableIcons: false,
       });
 
-      // 點擊地圖事件
       mapInstanceRef.current.addListener('click', (e) => {
-        // 如果已經顯示結果，就不允許再點擊修改
         if (showResult) return;
 
         const lat = e.latLng.lat();
         const lng = e.latLng.lng();
         setGuessLocation({ lat, lng });
 
-        // 清除舊標記
         if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
 
-        // 新增紅色標記 (你的猜測)
         guessMarkerRef.current = new window.google.maps.Marker({
           position: { lat, lng },
           map: mapInstanceRef.current,
           icon: {
-             url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" // 紅色
+             url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" 
           }
         });
       });
     }
   };
 
+  const getRandomOffset = (lat, lng) => {
+    const offset = 1; // 1 度約 111 公里
+    const newLat = lat + (Math.random() - 0.5) * offset * 2;
+    const newLng = lng + (Math.random() - 0.5) * offset * 2;
+    return { lat: newLat, lng: newLng };
+  };
+
   // 開始新回合
   const startNewRound = () => {
     const randomLocation = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
-    setCurrentLocation(randomLocation);
+    
+    // 修正：這裡改成 randomLocation
+    const randomOffset = getRandomOffset(randomLocation.lat, randomLocation.lng);
+
+    const newLocation = {
+        ...randomLocation,
+        lat: randomOffset.lat,
+        lng: randomOffset.lng
+    };
+
+    setCurrentLocation(newLocation);
     setGuessLocation(null);
     setShowResult(false);
     setLastDistance(null);
     setLastScore(null);
     
-    // 清理地圖上的標記和線
     if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
     if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
     if (polylineRef.current) polylineRef.current.setMap(null);
 
-    // 重置地圖視角
     if (mapInstanceRef.current) {
         mapInstanceRef.current.setCenter({ lat: 0, lng: 0 });
         mapInstanceRef.current.setZoom(2);
     }
 
-    // 稍微延遲以確保 DOM 已渲染
     setTimeout(() => {
-        loadStreetView(randomLocation);
-        initGuessMap(); // 確保猜測地圖也初始化
+        loadStreetView(newLocation);
+        initGuessMap(); 
     }, 100);
   };
 
-  // 載入街景
+  // 修正後的載入街景：增加半徑搜尋，避免黑畫面
   const loadStreetView = (location) => {
     if (window.google && panoramaRef.current) {
-      try {
-        new window.google.maps.StreetViewPanorama(
-          panoramaRef.current,
-          {
-            position: { lat: location.lat, lng: location.lng },
-            pov: { heading: 165, pitch: 0 },
-            zoom: 1,
-            disableDefaultUI: true,
-            linksControl: false,
-            panControl: false,
-            enableCloseButton: false,
-            showRoadLabels: false, 
-          }
-        );
-      } catch (e) {
-        console.error("地圖載入錯誤:", e);
-      }
+      const sv = new window.google.maps.StreetViewService();
+      
+      // 搜尋半徑設為 50公里 (50000公尺)，確保能找到路
+      sv.getPanorama({ location: { lat: location.lat, lng: location.lng }, radius: 50000 }, (data, status) => {
+        if (status === 'OK') {
+            // 如果找到了，使用找到的正確座標 (data.location.latLng)
+            const panorama = new window.google.maps.StreetViewPanorama(
+                panoramaRef.current,
+                {
+                  position: data.location.latLng,
+                  pov: { heading: 165, pitch: 0 },
+                  zoom: 1,
+                  disableDefaultUI: true,
+                  linksControl: false,
+                  panControl: false,
+                  enableCloseButton: false,
+                  showRoadLabels: false, 
+                }
+            );
+            
+            // 重要：更新當前位置為「真正找到街景」的位置，不然算分會有誤差
+            setCurrentLocation(prev => ({
+                ...prev,
+                lat: data.location.latLng.lat(),
+                lng: data.location.latLng.lng()
+            }));
+
+        } else {
+            console.error("此地點附近沒有街景:", status);
+            // 如果真的找不到，為了不讓遊戲卡住，可以選擇重新 startNewRound() 或顯示提示
+            // 這裡簡單處理：顯示錯誤訊息在街景上
+            panoramaRef.current.innerHTML = '<div style="color:white; display:flex; justify-content:center; align-items:center; height:100%;">此隨機位置荒無人煙，沒有街景...<br/>(請重新整理或下一回合)</div>';
+        }
+      });
     }
   };
 
+  // ... (以下程式碼保持不變)
   // 提交猜測
   const submitGuess = () => {
     if (!guessLocation || !currentLocation) return;
 
-    // 1. 計算距離
     const distance = calculateDistance(
         currentLocation.lat, 
         currentLocation.lng, 
@@ -159,7 +213,6 @@ export default function GeoGuessrGame() {
         guessLocation.lng
     );
     
-    // 2. 計算分數
     const roundScore = calculateScore(distance);
     
     setLastDistance(distance);
@@ -167,17 +220,15 @@ export default function GeoGuessrGame() {
     setScore(score + roundScore);
     setShowResult(true);
 
-    // 3. 在地圖上顯示正確答案 (綠色標記)
     if (mapInstanceRef.current) {
         correctMarkerRef.current = new window.google.maps.Marker({
             position: { lat: currentLocation.lat, lng: currentLocation.lng },
             map: mapInstanceRef.current,
             icon: {
-                url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png" // 綠色
+                url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png" 
             }
         });
 
-        // 4. 畫線連接兩點
         const lineCoordinates = [
             { lat: guessLocation.lat, lng: guessLocation.lng },
             { lat: currentLocation.lat, lng: currentLocation.lng }
@@ -185,7 +236,7 @@ export default function GeoGuessrGame() {
 
         polylineRef.current = new window.google.maps.Polyline({
             path: lineCoordinates,
-            geodesic: true, // 依地球曲率畫線
+            geodesic: true, 
             strokeColor: "#FF0000",
             strokeOpacity: 1.0,
             strokeWeight: 2,
@@ -193,7 +244,6 @@ export default function GeoGuessrGame() {
 
         polylineRef.current.setMap(mapInstanceRef.current);
 
-        // 5. 調整地圖縮放以同時顯示兩點
         const bounds = new window.google.maps.LatLngBounds();
         bounds.extend({ lat: guessLocation.lat, lng: guessLocation.lng });
         bounds.extend({ lat: currentLocation.lat, lng: currentLocation.lng });
@@ -205,7 +255,6 @@ export default function GeoGuessrGame() {
     }
   };
 
-  // 下一回合
   const nextRound = () => {
     if (round >= maxRounds) {
       setGameOver(true);
@@ -218,7 +267,6 @@ export default function GeoGuessrGame() {
     }
   };
 
-  // --- LocalStorage 多人連線邏輯 (與之前相同) ---
   const createRoom = () => {
     if (!playerName.trim()) { alert('請輸入玩家名稱！'); return; }
     const code = Math.random().toString(36).substr(2, 6).toUpperCase();
@@ -302,8 +350,6 @@ export default function GeoGuessrGame() {
     }
   }, []);
 
-  // --- UI Render ---
-
   if (gameMode === 'menu') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
@@ -318,7 +364,7 @@ export default function GeoGuessrGame() {
               onClick={() => { setGameMode('single'); startNewRound(); }}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition"
             >
-              <Play className="w-6 h-6" /> 單人遊戲
+              <Play className="w-6 h-6" /> 單人遊戲 (10回合)
             </button>
             <div className="border-t pt-4">
               <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
@@ -403,7 +449,7 @@ export default function GeoGuessrGame() {
         </div>
       </div>
 
-      {/* 遊戲區域：改為分割畫面 */}
+      {/* 遊戲區域 */}
       <div className="flex-1 flex flex-col md:flex-row h-full relative">
         
         {/* 左/上：街景 (占 70% 寬度) */}
@@ -414,7 +460,7 @@ export default function GeoGuessrGame() {
             </div>
           </div>
           
-          {/* 結果覆蓋層 (可選，顯示在街景上) */}
+          {/* 結果覆蓋層 */}
           {showResult && (
             <div className="absolute bottom-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg backdrop-blur-sm z-10">
                <h3 className="font-bold text-lg mb-1">本局結果</h3>
@@ -429,10 +475,8 @@ export default function GeoGuessrGame() {
 
         {/* 右/下：猜測地圖 (占 30% 寬度) */}
         <div className="w-full md:w-[30%] h-[40vh] md:h-auto relative border-l-4 border-white z-20 shadow-2xl">
-           {/* 地圖容器 */}
            <div ref={guessMapRef} className="w-full h-full bg-gray-200 cursor-crosshair"></div>
            
-           {/* 確認按鈕 (浮在地图下方) */}
            {!showResult && (
              <div className="absolute bottom-6 left-0 right-0 px-6 pointer-events-none">
                <button 
