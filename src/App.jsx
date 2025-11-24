@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon } from 'lucide-react';
+// Import Firebase
+import { db } from './firebase';
+import { ref, set, onValue, update, get } from "firebase/database";
 
-// Default Locations Database (Translated to English)
+// Default Locations Database
 const LOCATIONS = [
   {"lat": 25.0339, "lng": 121.5644, "country": "Taiwan", "city": "Taipei (101)"},
   {"lat": 22.6273, "lng": 120.2866, "country": "Taiwan", "city": "Kaohsiung (Pier-2)"},
@@ -64,6 +67,7 @@ export default function GeoGuessrGame() {
   const [players, setPlayers] = useState([]);
   const [isHost, setIsHost] = useState(false);
   const [multiRoomCode, setMultiRoomCode] = useState('');
+  const [playerId, setPlayerId] = useState(''); 
   
   // Refs
   const panoramaRef = useRef(null); 
@@ -73,24 +77,49 @@ export default function GeoGuessrGame() {
   const correctMarkerRef = useRef(null); 
   const polylineRef = useRef(null); 
 
-  // Calculate Distance (Haversine Formula) - Unit: km
+  // Cleanup map instance on mode change
+  useEffect(() => {
+    if (gameMode !== 'single' && gameMode !== 'multi') {
+        mapInstanceRef.current = null;
+        setGuessLocation(null);
+        setShowResult(false);
+    }
+  }, [gameMode]);
+
+  // --- Helpers ---
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   };
 
-  // Calculate Score
   const calculateScore = (distance) => {
     return Math.round(5000 * Math.exp(-distance / 2000));
   };
 
-  // Initialize Guess Map
+  const getRandomOffset = (lat, lng) => {
+    // 稍微縮小範圍以確保容易找到路，但還是保留隨機性 (約 55km)
+    const offset = 0.5; 
+    const newLat = lat + (Math.random() - 0.5) * offset * 2;
+    const newLng = lng + (Math.random() - 0.5) * offset * 2;
+    return { lat: newLat, lng: newLng };
+  };
+
+  const generateNewLocation = () => {
+    const randomLocation = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
+    const randomOffset = getRandomOffset(randomLocation.lat, randomLocation.lng);
+    return {
+        ...randomLocation,
+        lat: randomOffset.lat,
+        lng: randomOffset.lng
+    };
+  };
+
+  // --- Map & Street View Logic (The Fix is Here) ---
+  
   const initGuessMap = () => {
     if (window.google && guessMapRef.current && !mapInstanceRef.current) {
       mapInstanceRef.current = new window.google.maps.Map(guessMapRef.current, {
@@ -101,74 +130,36 @@ export default function GeoGuessrGame() {
       });
 
       mapInstanceRef.current.addListener('click', (e) => {
-        if (showResult) return;
-
+        if (document.body.getAttribute('data-show-result') === 'true') return;
+        
         const lat = e.latLng.lat();
         const lng = e.latLng.lng();
         setGuessLocation({ lat, lng });
 
         if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
-
         guessMarkerRef.current = new window.google.maps.Marker({
           position: { lat, lng },
           map: mapInstanceRef.current,
-          icon: {
-             url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" 
-          }
+          icon: { url: "http://maps.google.com/mapfiles/ms/icons/red-dot.png" }
         });
       });
     }
   };
 
-  const getRandomOffset = (lat, lng) => {
-    const offset = 1; // 1 degree is approx 111 km
-    const newLat = lat + (Math.random() - 0.5) * offset * 2;
-    const newLng = lng + (Math.random() - 0.5) * offset * 2;
-    return { lat: newLat, lng: newLng };
-  };
-
-  // Start New Round
-  const startNewRound = () => {
-    const randomLocation = LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)];
-    
-    // Corrected variable name: randomLocation
-    const randomOffset = getRandomOffset(randomLocation.lat, randomLocation.lng);
-
-    const newLocation = {
-        ...randomLocation,
-        lat: randomOffset.lat,
-        lng: randomOffset.lng
-    };
-
-    setCurrentLocation(newLocation);
-    setGuessLocation(null);
-    setShowResult(false);
-    setLastDistance(null);
-    setLastScore(null);
-    
-    if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
-    if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
-    if (polylineRef.current) polylineRef.current.setMap(null);
-
-    if (mapInstanceRef.current) {
-        mapInstanceRef.current.setCenter({ lat: 0, lng: 0 });
-        mapInstanceRef.current.setZoom(2);
-    }
-
-    setTimeout(() => {
-        loadStreetView(newLocation);
-        initGuessMap(); 
-    }, 100);
-  };
-
-  // Load Street View with Radius Search
+  // --- 關鍵修正：確保 Street View 一定會出現 ---
   const loadStreetView = (location) => {
     if (window.google && panoramaRef.current) {
       const sv = new window.google.maps.StreetViewService();
       
-      // Radius search 50km to ensure a panorama is found
-      sv.getPanorama({ location: { lat: location.lat, lng: location.lng }, radius: 50000 }, (data, status) => {
+      // 1. 搜尋半徑設為 100km (非常大)，確保一定找得到路
+      // 2. preference: 'nearest' 強制找最近的
+      sv.getPanorama({ 
+          location: { lat: location.lat, lng: location.lng }, 
+          radius: 100000,
+          preference: 'nearest'
+      }, (data, status) => {
         if (status === 'OK') {
+            // 成功：載入畫面
             const panorama = new window.google.maps.StreetViewPanorama(
                 panoramaRef.current,
                 {
@@ -183,7 +174,7 @@ export default function GeoGuessrGame() {
                 }
             );
             
-            // Update current location to the ACTUAL street view location found
+            // 重要：修正 CurrentLocation 為「真正找到的位置」，避免計分誤差
             setCurrentLocation(prev => ({
                 ...prev,
                 lat: data.location.latLng.lat(),
@@ -191,149 +182,218 @@ export default function GeoGuessrGame() {
             }));
 
         } else {
-            console.error("No Street View found nearby:", status);
-            panoramaRef.current.innerHTML = '<div style="color:white; display:flex; justify-content:center; align-items:center; height:100%;">No Street View available here...<br/>(Try refreshing or next round)</div>';
+            // 失敗：自動重試 (Recursive Retry)
+            console.warn("Location invalid (no street view), retrying...");
+            
+            // 如果我是房主或單人玩家，我有權利決定換下一題
+            if (gameMode === 'single' || isHost) {
+                const newLocation = generateNewLocation();
+                
+                if (gameMode === 'multi') {
+                    // 多人模式：告訴 Firebase 換題目，所有人都會自動重整
+                    update(ref(db, `rooms/${multiRoomCode}`), {
+                        currentLocation: newLocation
+                    });
+                } else {
+                    // 單人模式：直接重跑
+                    startNewRound(newLocation);
+                }
+            }
         }
       });
     }
   };
 
-  // Submit Guess
+  const startNewRound = (locationData) => {
+    setCurrentLocation(locationData);
+    setGuessLocation(null);
+    setShowResult(false);
+    setLastDistance(null);
+    setLastScore(null);
+    
+    if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
+    if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
+    if (polylineRef.current) polylineRef.current.setMap(null);
+    
+    if (mapInstanceRef.current) {
+        mapInstanceRef.current.setCenter({ lat: 0, lng: 0 });
+        mapInstanceRef.current.setZoom(2);
+    }
+
+    setTimeout(() => {
+        loadStreetView(locationData);
+        initGuessMap(); 
+    }, 200);
+  };
+
+  // --- Interactions ---
+
+  useEffect(() => {
+    document.body.setAttribute('data-show-result', showResult);
+  }, [showResult]);
+
   const submitGuess = () => {
     if (!guessLocation || !currentLocation) return;
-
-    const distance = calculateDistance(
-        currentLocation.lat, 
-        currentLocation.lng, 
-        guessLocation.lat, 
-        guessLocation.lng
-    );
-    
+    const distance = calculateDistance(currentLocation.lat, currentLocation.lng, guessLocation.lat, guessLocation.lng);
     const roundScore = calculateScore(distance);
     
     setLastDistance(distance);
     setLastScore(roundScore);
-    setScore(score + roundScore);
+    const newTotalScore = score + roundScore;
+    setScore(newTotalScore);
     setShowResult(true);
 
     if (mapInstanceRef.current) {
         correctMarkerRef.current = new window.google.maps.Marker({
             position: { lat: currentLocation.lat, lng: currentLocation.lng },
             map: mapInstanceRef.current,
-            icon: {
-                url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png" 
-            }
+            icon: { url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png" }
         });
-
-        const lineCoordinates = [
-            { lat: guessLocation.lat, lng: guessLocation.lng },
-            { lat: currentLocation.lat, lng: currentLocation.lng }
-        ];
-
+        const lineCoordinates = [{ lat: guessLocation.lat, lng: guessLocation.lng }, { lat: currentLocation.lat, lng: currentLocation.lng }];
         polylineRef.current = new window.google.maps.Polyline({
-            path: lineCoordinates,
-            geodesic: true, 
-            strokeColor: "#FF0000",
-            strokeOpacity: 1.0,
-            strokeWeight: 2,
+            path: lineCoordinates, geodesic: true, strokeColor: "#FF0000", strokeOpacity: 1.0, strokeWeight: 2,
         });
-
         polylineRef.current.setMap(mapInstanceRef.current);
-
         const bounds = new window.google.maps.LatLngBounds();
         bounds.extend({ lat: guessLocation.lat, lng: guessLocation.lng });
         bounds.extend({ lat: currentLocation.lat, lng: currentLocation.lng });
         mapInstanceRef.current.fitBounds(bounds);
     }
 
-    if (gameMode === 'multi') {
-      updatePlayerScore(roundScore);
+    if (gameMode === 'multi' && multiRoomCode && playerId) {
+        update(ref(db, `rooms/${multiRoomCode}/players/${playerId}`), {
+            score: newTotalScore
+        });
     }
   };
 
-  const nextRound = () => {
-    if (round >= maxRounds) {
-      setGameOver(true);
-      if (gameMode === 'multi') {
-        finalizeMultiGame();
-      }
-    } else {
-      setRound(round + 1);
-      startNewRound();
-    }
-  };
-
-  // Room Functions
-  const createRoom = () => {
-    if (!playerName.trim()) { alert('Please enter player name!'); return; }
-    const code = Math.random().toString(36).substr(2, 6).toUpperCase();
-    setMultiRoomCode(code);
-    setIsHost(true);
-    try {
-      const roomData = {
-        host: playerName,
-        players: [{ name: playerName, score: 0, ready: false }],
-        round: 1,
-        location: LOCATIONS[0],
-        status: 'waiting'
-      };
-      localStorage.setItem(`room:${code}`, JSON.stringify(roomData));
-      setPlayers([{ name: playerName, score: 0, ready: false }]);
-      setGameMode('lobby');
-    } catch (error) { console.error(error); }
-  };
-
-  const joinRoom = () => {
-    if (!playerName.trim() || !roomCode.trim()) { alert('Please enter details!'); return; }
-    try {
-      const storedData = localStorage.getItem(`room:${roomCode.toUpperCase()}`);
-      if (!storedData) { alert('Room does not exist!'); return; }
-      const roomData = JSON.parse(storedData);
-      if (!roomData.players.find(p => p.name === playerName)) {
-        roomData.players.push({ name: playerName, score: 0, ready: false });
-        localStorage.setItem(`room:${roomCode.toUpperCase()}`, JSON.stringify(roomData));
-      }
-      setMultiRoomCode(roomCode.toUpperCase());
-      setPlayers(roomData.players);
-      setGameMode('lobby');
-    } catch (error) { console.error(error); }
-  };
-
-  const updatePlayerScore = (roundScore) => {
-    try {
-      const storedData = localStorage.getItem(`room:${multiRoomCode}`);
-      if (storedData) {
-        const roomData = JSON.parse(storedData);
-        const playerIndex = roomData.players.findIndex(p => p.name === playerName);
-        if (playerIndex !== -1) {
-          roomData.players[playerIndex].score += roundScore;
-          localStorage.setItem(`room:${multiRoomCode}`, JSON.stringify(roomData));
+  const handleNextRoundAction = () => {
+    if (gameMode === 'single') {
+        if (round >= maxRounds) {
+            setGameOver(true);
+        } else {
+            setRound(round + 1);
+            startNewRound(generateNewLocation());
         }
-      }
-    } catch (error) { console.error(error); }
+    } else if (gameMode === 'multi' && isHost) {
+        if (round >= maxRounds) {
+            update(ref(db, `rooms/${multiRoomCode}`), { status: 'finished' });
+        } else {
+            const nextRoundNum = round + 1;
+            const nextLocation = generateNewLocation();
+            update(ref(db, `rooms/${multiRoomCode}`), {
+                round: nextRoundNum,
+                currentLocation: nextLocation
+            });
+        }
+    }
   };
 
-  const finalizeMultiGame = () => {
+  // --- Multiplayer Logic ---
+
+  const createRoom = async () => {
+    if (!playerName.trim()) { alert('Please enter player name!'); return; }
+    
+    const newRoomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const newPlayerId = Date.now().toString(); 
+    
+    const initialLocation = generateNewLocation();
+
+    const roomData = {
+        host: playerName,
+        status: 'lobby',
+        round: 1,
+        currentLocation: initialLocation,
+        players: {
+            [newPlayerId]: { name: playerName, score: 0 }
+        }
+    };
+
     try {
-      const storedData = localStorage.getItem(`room:${multiRoomCode}`);
-      if (storedData) {
-        const roomData = JSON.parse(storedData);
-        roomData.status = 'finished';
-        localStorage.setItem(`room:${multiRoomCode}`, JSON.stringify(roomData));
-        setPlayers(roomData.players);
-      }
-    } catch (error) { console.error(error); }
+        await set(ref(db, 'rooms/' + newRoomCode), roomData);
+        setMultiRoomCode(newRoomCode);
+        setPlayerId(newPlayerId);
+        setIsHost(true);
+        setGameMode('lobby');
+    } catch (error) {
+        console.error("Firebase Error:", error);
+        alert("Failed to create room. Check console.");
+    }
+  };
+
+  const joinRoom = async () => {
+    if (!playerName.trim() || !roomCode.trim()) { alert('Please enter details!'); return; }
+    const code = roomCode.toUpperCase();
+    const newPlayerId = Date.now().toString();
+
+    const roomRef = ref(db, `rooms/${code}`);
+    try {
+        const snapshot = await get(roomRef);
+        if (snapshot.exists()) {
+            await update(ref(db, `rooms/${code}/players`), {
+                [newPlayerId]: { name: playerName, score: 0 }
+            });
+            
+            setMultiRoomCode(code);
+            setPlayerId(newPlayerId);
+            setIsHost(false);
+            setGameMode('lobby');
+        } else {
+            alert('Room not found!');
+        }
+    } catch (error) {
+        console.error("Join Error:", error);
+    }
+  };
+
+  const hostStartGame = () => {
+    if (!isHost) return;
+    update(ref(db, `rooms/${multiRoomCode}`), { status: 'playing' });
   };
 
   useEffect(() => {
-    if (gameMode === 'lobby' || gameMode === 'multi') {
-        const interval = setInterval(() => {
-            const storedData = localStorage.getItem(`room:${multiRoomCode}`);
-            if (storedData) setPlayers(JSON.parse(storedData).players);
-        }, 1000);
-        return () => clearInterval(interval);
-    }
-  }, [gameMode, multiRoomCode]);
+    if (!multiRoomCode) return;
+
+    const roomRef = ref(db, `rooms/${multiRoomCode}`);
+    const unsubscribe = onValue(roomRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            // 1. Sync Players List
+            if (data.players) {
+                const playerList = Object.entries(data.players).map(([key, val]) => ({
+                    id: key,
+                    ...val
+                }));
+                setPlayers(playerList);
+            }
+
+            // 2. Handle Game Status Changes (Lobby -> Playing)
+            if (data.status === 'playing' && gameMode === 'lobby') {
+                setGameMode('multi');
+                if (data.currentLocation) {
+                    startNewRound(data.currentLocation);
+                }
+            } else if (data.status === 'finished') {
+                setGameOver(true);
+            }
+
+            // 3. Handle Round Changes
+            if (data.status === 'playing') {
+                // 🔴 修改重點：只看 Round 是否改變，絕對不要比對 currentLocation 的座標！
+                // 因為 loadStreetView 會微調座標，比對座標會造成無限迴圈閃爍
+                if (data.round !== round) {
+                    setRound(data.round);
+                    if (data.currentLocation) {
+                        startNewRound(data.currentLocation);
+                    }
+                }
+            }
+        }
+    });
+
+    return () => unsubscribe();
+  }, [multiRoomCode, gameMode, round]);
+
 
   useEffect(() => {
     if (!window.google) {
@@ -346,7 +406,7 @@ export default function GeoGuessrGame() {
     }
   }, []);
 
-  // --- UI Render ---
+  // --- UI RENDER ---
 
   if (gameMode === 'menu') {
     return (
@@ -355,22 +415,25 @@ export default function GeoGuessrGame() {
           <div className="text-center mb-8">
             <Globe className="w-20 h-20 mx-auto mb-4 text-blue-500" />
             <h1 className="text-4xl font-bold text-gray-800 mb-2">GeoGuessr</h1>
-            <p className="text-gray-600">Explore the world, guess the location!</p>
+            <p className="text-gray-600">Global Multiplayer Edition</p>
           </div>
           <div className="space-y-4">
             <button
-              onClick={() => { setGameMode('single'); startNewRound(); }}
+              onClick={() => { 
+                  setGameMode('single'); 
+                  startNewRound(generateNewLocation()); 
+              }}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition"
             >
               <Play className="w-6 h-6" /> Single Player
             </button>
             <div className="border-t pt-4">
               <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
-                <Users className="w-5 h-5" /> Multiplayer (Local)
+                <Users className="w-5 h-5" /> Multiplayer (Online)
               </h3>
-              <input type="text" placeholder="Enter Name" value={playerName} onChange={(e) => setPlayerName(e.target.value)} className="w-full p-3 border rounded-lg mb-3" />
+              <input type="text" placeholder="Your Name" value={playerName} onChange={(e) => setPlayerName(e.target.value)} className="w-full p-3 border rounded-lg mb-3" />
               <div className="space-y-2">
-                <button onClick={createRoom} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Create Room</button>
+                <button onClick={createRoom} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Create Online Room</button>
                 <div className="flex gap-2">
                   <input type="text" placeholder="Room Code" value={roomCode} onChange={(e) => setRoomCode(e.target.value.toUpperCase())} className="flex-1 p-3 border rounded-lg" maxLength={6} />
                   <button onClick={joinRoom} className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-lg transition">Join</button>
@@ -388,19 +451,26 @@ export default function GeoGuessrGame() {
       <div className="min-h-screen bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-6">
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">Game Lobby</h2>
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">Lobby</h2>
             <p className="text-2xl font-mono font-bold text-blue-600">{multiRoomCode}</p>
+            <p className="text-sm text-gray-500 mt-2">Share this code with your friends!</p>
           </div>
           <div className="bg-gray-50 rounded-xl p-4 mb-6">
-            <h3 className="font-bold text-gray-700 mb-3">Players ({players.length})</h3>
+            <h3 className="font-bold text-gray-700 mb-3">Players Joined ({players.length})</h3>
             <div className="space-y-2">
-              {players.map((p, i) => (
-                <div key={i} className="bg-white p-3 rounded-lg flex justify-between"><span className="font-semibold">{p.name}</span></div>
+              {players.map((p) => (
+                <div key={p.id} className="bg-white p-3 rounded-lg flex justify-between">
+                    <span className="font-semibold">{p.name} {p.id === playerId ? '(You)' : ''}</span>
+                </div>
               ))}
             </div>
           </div>
           <div className="space-y-3">
-            {isHost && <button onClick={() => { setGameMode('multi'); startNewRound(); }} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Start Game</button>}
+            {isHost ? (
+                <button onClick={hostStartGame} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Start Game</button>
+            ) : (
+                <div className="text-center text-gray-600 italic">Waiting for host to start...</div>
+            )}
             <button onClick={() => { setGameMode('menu'); setMultiRoomCode(''); setPlayers([]); }} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition">Leave</button>
           </div>
         </div>
@@ -415,14 +485,18 @@ export default function GeoGuessrGame() {
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-6">
             <Trophy className="w-20 h-20 mx-auto mb-4 text-yellow-500" />
-            <h2 className="text-3xl font-bold text-gray-800 mb-2">Game Over</h2>
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">Game Over!</h2>
             {gameMode === 'single' && <p className="text-5xl font-bold text-blue-600">{score} Points</p>}
           </div>
           {gameMode === 'multi' && (
             <div className="bg-gray-50 rounded-xl p-4 mb-6">
+              <h3 className="font-bold text-gray-700 mb-3">Leaderboard</h3>
               <div className="space-y-2">
                 {sortedPlayers.map((p, i) => (
-                  <div key={i} className="bg-white p-3 rounded-lg flex justify-between"><span className="font-semibold">{i+1}. {p.name}</span><span className="font-bold text-blue-600">{p.score}</span></div>
+                  <div key={p.id} className="bg-white p-3 rounded-lg flex justify-between">
+                      <span className="font-semibold">{i+1}. {p.name}</span>
+                      <span className="font-bold text-blue-600">{p.score}</span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -433,7 +507,7 @@ export default function GeoGuessrGame() {
     );
   }
 
-  // Game Screen
+  // Game Interface
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* Top Bar */}
@@ -442,14 +516,13 @@ export default function GeoGuessrGame() {
           <div className="flex items-center gap-6">
             <div><span className="text-sm text-gray-600">Round</span><p className="text-2xl font-bold text-blue-600">{round}/{maxRounds}</p></div>
             <div><span className="text-sm text-gray-600">Score</span><p className="text-2xl font-bold text-green-600">{score}</p></div>
+            {gameMode === 'multi' && <div><span className="text-sm text-gray-600">Room</span><p className="text-lg font-mono font-bold">{multiRoomCode}</p></div>}
           </div>
           <button onClick={() => setGameMode('menu')} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Leave</button>
         </div>
       </div>
 
-      {/* Game Area */}
       <div className="flex-1 flex flex-col md:flex-row h-full relative">
-        
         {/* Left/Top: Street View (70%) */}
         <div className="w-full md:w-[70%] h-[50vh] md:h-auto relative bg-black">
           <div ref={panoramaRef} className="w-full h-full">
@@ -464,9 +537,15 @@ export default function GeoGuessrGame() {
                <h3 className="font-bold text-lg mb-1">Round Result</h3>
                <p>Distance: <span className="font-bold text-red-500">{Math.round(lastDistance)} km</span></p>
                <p>Score: <span className="font-bold text-green-600">+{lastScore}</span></p>
-               <button onClick={nextRound} className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
-                 {round >= maxRounds ? 'View Total' : 'Next Round'}
-               </button>
+               
+               {/* Show NEXT button only if Single Player or Host in Multiplayer */}
+               {(gameMode === 'single' || isHost) ? (
+                   <button onClick={handleNextRoundAction} className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">
+                     {round >= maxRounds ? 'View Total' : 'Next Round'}
+                   </button>
+               ) : (
+                   <div className="mt-3 text-sm text-gray-600 italic">Waiting for host...</div>
+               )}
             </div>
           )}
         </div>
@@ -474,16 +553,13 @@ export default function GeoGuessrGame() {
         {/* Right/Bottom: Guess Map (30%) */}
         <div className="w-full md:w-[30%] h-[40vh] md:h-auto relative border-l-4 border-white z-20 shadow-2xl">
            <div ref={guessMapRef} className="w-full h-full bg-gray-200 cursor-crosshair"></div>
-           
            {!showResult && (
              <div className="absolute bottom-6 left-0 right-0 px-6 pointer-events-none">
                <button 
                  onClick={submitGuess}
                  disabled={!guessLocation}
                  className={`w-full py-4 rounded-xl font-bold text-lg shadow-xl pointer-events-auto transition transform hover:scale-105 ${
-                    guessLocation 
-                    ? 'bg-green-500 text-white hover:bg-green-600' 
-                    : 'bg-gray-800/50 text-gray-300 cursor-not-allowed'
+                    guessLocation ? 'bg-green-500 text-white hover:bg-green-600' : 'bg-gray-800/50 text-gray-300 cursor-not-allowed'
                  }`}
                >
                  {guessLocation ? 'Make Guess' : 'Click Map to Place Guess'}
@@ -491,7 +567,6 @@ export default function GeoGuessrGame() {
              </div>
            )}
         </div>
-
       </div>
     </div>
   );
