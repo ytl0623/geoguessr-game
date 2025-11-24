@@ -240,15 +240,22 @@ export default function GeoGuessrGame() {
 
   // 載入 Google Maps API
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCjemnCwOQjza_pPcp7ySClyzqXgY-mwa8`;
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-    
-    return () => {
-      document.head.removeChild(script);
-    };
+    // 檢查是否已經載入過
+    if (!window.google) {
+      const script = document.createElement('script');
+      
+      // 修改這裡：使用 import.meta.env 來讀取變數
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+      
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+      
+      return () => {
+        // 清理邏輯
+      };
+    }
   }, []);
 
   // 主選單
