@@ -1,238 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock, Loader2, Timer } from 'lucide-react';
-// Import Firebase
+import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock, Loader2, Timer, ListOrdered } from 'lucide-react';
 import { db } from './firebase';
 import { ref, set, onValue, update, get, push, query, orderByChild, limitToLast } from "firebase/database";
+import locationsData from './locations.json';
 
-// Default Locations Database
-const LOCATIONS = [
-  // --- Argentina ---
-  {"lat": -34.6037, "lng": -58.3816, "country": "Argentina", "city": "Buenos Aires"},
-  
-  // --- Australia ---
-  {"lat": -27.4698, "lng": 153.0251, "country": "Australia", "city": "Brisbane"},
-  {"lat": -37.8136, "lng": 144.9631, "country": "Australia", "city": "Melbourne"},
-  {"lat": -31.9505, "lng": 115.8605, "country": "Australia", "city": "Perth"},
-  {"lat": -33.8568, "lng": 151.2153, "country": "Australia", "city": "Sydney (Opera House)"},
-  
-  // --- Austria ---
-  {"lat": 48.2082, "lng": 16.3738, "country": "Austria", "city": "Vienna"},
-  
-  // --- Belgium ---
-  {"lat": 50.8503, "lng": 4.3517, "country": "Belgium", "city": "Brussels"},
-  
-  // --- Brazil ---
-  {"lat": -22.9519, "lng": -43.2105, "country": "Brazil", "city": "Rio (Christ the Redeemer)"},
-  {"lat": -23.5505, "lng": -46.6333, "country": "Brazil", "city": "Sao Paulo"},
-  
-  // --- Canada ---
-  {"lat": 51.0447, "lng": -114.0719, "country": "Canada", "city": "Calgary"},
-  {"lat": 45.5017, "lng": -73.5673, "country": "Canada", "city": "Montreal"},
-  {"lat": 45.4215, "lng": -75.6972, "country": "Canada", "city": "Ottawa"},
-  {"lat": 43.6532, "lng": -79.3832, "country": "Canada", "city": "Toronto"},
-  {"lat": 49.2827, "lng": -123.1207, "country": "Canada", "city": "Vancouver"},
-  
-  // --- Chile ---
-  {"lat": -33.4489, "lng": -70.6693, "country": "Chile", "city": "Santiago"},
-  
-  // --- China ---
-  {"lat": 39.9042, "lng": 116.4074, "country": "China", "city": "Beijing"},
-  {"lat": 30.5728, "lng": 104.0668, "country": "China", "city": "Chengdu"},
-  {"lat": 23.1291, "lng": 113.2644, "country": "China", "city": "Guangzhou"},
-  {"lat": 31.2304, "lng": 121.4737, "country": "China", "city": "Shanghai"},
-  {"lat": 22.5431, "lng": 114.0579, "country": "China", "city": "Shenzhen"},
-  {"lat": 34.3416, "lng": 108.9398, "country": "China", "city": "Xi'an"},
-  
-  // --- Colombia ---
-  {"lat": 4.7110, "lng": -74.0721, "country": "Colombia", "city": "Bogota"},
-  
-  // --- Czech Republic ---
-  {"lat": 50.0755, "lng": 14.4378, "country": "Czech Republic", "city": "Prague"},
-  
-  // --- Denmark ---
-  {"lat": 55.6761, "lng": 12.5683, "country": "Denmark", "city": "Copenhagen"},
-  
-  // --- Ecuador ---
-  {"lat": -0.1807, "lng": -78.4678, "country": "Ecuador", "city": "Quito"},
-  
-  // --- Egypt ---
-  {"lat": 30.0444, "lng": 31.2357, "country": "Egypt", "city": "Cairo"},
-  
-  // --- Finland ---
-  {"lat": 60.1699, "lng": 24.9384, "country": "Finland", "city": "Helsinki"},
-  
-  // --- France ---
-  {"lat": 48.8584, "lng": 2.2945, "country": "France", "city": "Paris (Eiffel Tower)"},
-  
-  // --- Germany ---
-  {"lat": 52.5200, "lng": 13.4050, "country": "Germany", "city": "Berlin"},
-  {"lat": 50.1109, "lng": 8.6821, "country": "Germany", "city": "Frankfurt"},
-  {"lat": 48.1351, "lng": 11.5820, "country": "Germany", "city": "Munich"},
-  
-  // --- Greece ---
-  {"lat": 37.9838, "lng": 23.7275, "country": "Greece", "city": "Athens"},
-  
-  // --- Hong Kong ---
-  {"lat": 22.2855, "lng": 114.1577, "country": "Hong Kong", "city": "Central"},
-  
-  // --- Hungary ---
-  {"lat": 47.4979, "lng": 19.0402, "country": "Hungary", "city": "Budapest"},
-  
-  // --- India ---
-  {"lat": 12.9716, "lng": 77.5946, "country": "India", "city": "Bangalore"},
-  {"lat": 13.0827, "lng": 80.2707, "country": "India", "city": "Chennai"},
-  {"lat": 19.0760, "lng": 72.8777, "country": "India", "city": "Mumbai"},
-  {"lat": 28.6139, "lng": 77.2090, "country": "India", "city": "New Delhi"},
-  
-  // --- Indonesia ---
-  {"lat": -8.4095, "lng": 115.1889, "country": "Indonesia", "city": "Bali (Denpasar)"},
-  {"lat": -6.2088, "lng": 106.8456, "country": "Indonesia", "city": "Jakarta"},
-  
-  // --- Ireland ---
-  {"lat": 53.3498, "lng": -6.2603, "country": "Ireland", "city": "Dublin"},
-  
-  // --- Israel ---
-  {"lat": 32.0853, "lng": 34.7818, "country": "Israel", "city": "Tel Aviv"},
-  
-  // --- Italy ---
-  {"lat": 41.9028, "lng": 12.4964, "country": "Italy", "city": "Rome (Colosseum)"},
-  {"lat": 45.4408, "lng": 12.3155, "country": "Italy", "city": "Venice"},
-  
-  // --- Japan ---
-  {"lat": 33.5904, "lng": 130.4017, "country": "Japan", "city": "Fukuoka"},
-  {"lat": 34.3853, "lng": 132.4553, "country": "Japan", "city": "Hiroshima"},
-  {"lat": 35.0116, "lng": 135.7681, "country": "Japan", "city": "Kyoto (Kamo River)"},
-  {"lat": 35.1815, "lng": 136.9066, "country": "Japan", "city": "Nagoya"},
-  {"lat": 26.2124, "lng": 127.6809, "country": "Japan", "city": "Naha (Okinawa)"},
-  {"lat": 34.6937, "lng": 135.5023, "country": "Japan", "city": "Osaka (Nakanoshima)"},
-  {"lat": 43.0618, "lng": 141.3545, "country": "Japan", "city": "Sapporo"},
-  {"lat": 38.2682, "lng": 140.8694, "country": "Japan", "city": "Sendai"},
-  {"lat": 35.6586, "lng": 139.7454, "country": "Japan", "city": "Tokyo (Tower)"},
-  
-  // --- Kenya ---
-  {"lat": -1.2921, "lng": 36.8219, "country": "Kenya", "city": "Nairobi"},
-  
-  // --- Malaysia ---
-  {"lat": 3.1390, "lng": 101.6869, "country": "Malaysia", "city": "Kuala Lumpur"},
-  
-  // --- Mexico ---
-  {"lat": 19.4326, "lng": -99.1332, "country": "Mexico", "city": "Mexico City"},
-  
-  // --- Morocco ---
-  {"lat": 33.5731, "lng": -7.5898, "country": "Morocco", "city": "Casablanca"},
-  
-  // --- Netherlands ---
-  {"lat": 52.3676, "lng": 4.9041, "country": "Netherlands", "city": "Amsterdam"},
-  
-  // --- New Zealand ---
-  {"lat": -36.8485, "lng": 174.7633, "country": "New Zealand", "city": "Auckland"},
-  {"lat": -43.5321, "lng": 172.6362, "country": "New Zealand", "city": "Christchurch"},
-  {"lat": -41.2865, "lng": 174.7762, "country": "New Zealand", "city": "Wellington"},
-  
-  // --- Nigeria ---
-  {"lat": 6.5244, "lng": 3.3792, "country": "Nigeria", "city": "Lagos"},
-  
-  // --- Norway ---
-  {"lat": 59.9139, "lng": 10.7522, "country": "Norway", "city": "Oslo"},
-  
-  // --- Panama ---
-  {"lat": 8.9824, "lng": -79.5199, "country": "Panama", "city": "Panama City"},
-  
-  // --- Peru ---
-  {"lat": -12.0464, "lng": -77.0428, "country": "Peru", "city": "Lima"},
-  
-  // --- Philippines ---
-  {"lat": 14.5995, "lng": 120.9842, "country": "Philippines", "city": "Manila"},
-  
-  // --- Poland ---
-  {"lat": 52.2297, "lng": 21.0122, "country": "Poland", "city": "Warsaw"},
-  
-  // --- Portugal ---
-  {"lat": 38.7223, "lng": -9.1393, "country": "Portugal", "city": "Lisbon"},
-  
-  // --- Qatar ---
-  {"lat": 25.2854, "lng": 51.5310, "country": "Qatar", "city": "Doha"},
-  
-  // --- Russia ---
-  {"lat": 55.7522, "lng": 37.6175, "country": "Russia", "city": "Moscow (Red Square)"},
-  
-  // --- Saudi Arabia ---
-  {"lat": 24.7136, "lng": 46.6753, "country": "Saudi Arabia", "city": "Riyadh"},
-  
-  // --- Singapore ---
-  {"lat": 1.2868, "lng": 103.8545, "country": "Singapore", "city": "Merlion Park"},
-  
-  // --- South Africa ---
-  {"lat": -33.9249, "lng": 18.4241, "country": "South Africa", "city": "Cape Town"},
-  {"lat": -26.2041, "lng": 28.0473, "country": "South Africa", "city": "Johannesburg"},
-  
-  // --- South Korea ---
-  {"lat": 35.1796, "lng": 129.0756, "country": "South Korea", "city": "Busan"},
-  {"lat": 37.4563, "lng": 126.7052, "country": "South Korea", "city": "Incheon"},
-  {"lat": 33.4996, "lng": 126.5312, "country": "South Korea", "city": "Jeju City"},
-  {"lat": 37.5665, "lng": 126.9780, "country": "South Korea", "city": "Seoul"},
-  
-  // --- Spain ---
-  {"lat": 41.3851, "lng": 2.1734, "country": "Spain", "city": "Barcelona"},
-  {"lat": 40.4168, "lng": -3.7038, "country": "Spain", "city": "Madrid"},
-  
-  // --- Sweden ---
-  {"lat": 59.3293, "lng": 18.0686, "country": "Sweden", "city": "Stockholm"},
-  
-  // --- Switzerland ---
-  {"lat": 46.2044, "lng": 6.1432, "country": "Switzerland", "city": "Geneva"},
-  {"lat": 47.3769, "lng": 8.5417, "country": "Switzerland", "city": "Zurich"},
-  
-  // --- Taiwan ---
-  {"lat": 23.4801, "lng": 120.4491, "country": "Taiwan", "city": "Chiayi"},
-  {"lat": 24.8138, "lng": 120.9675, "country": "Taiwan", "city": "Hsinchu (Science Park)"},
-  {"lat": 23.9930, "lng": 121.6011, "country": "Taiwan", "city": "Hualien"},
-  {"lat": 22.6273, "lng": 120.2866, "country": "Taiwan", "city": "Kaohsiung (Pier-2)"},
-  {"lat": 25.1276, "lng": 121.7392, "country": "Taiwan", "city": "Keelung (Night Market)"},
-  {"lat": 24.1477, "lng": 120.6736, "country": "Taiwan", "city": "Taichung (Station)"},
-  {"lat": 22.9997, "lng": 120.2270, "country": "Taiwan", "city": "Tainan (Fort Zeelandia)"},
-  {"lat": 25.0339, "lng": 121.5644, "country": "Taiwan", "city": "Taipei (101)"},
-  {"lat": 22.7613, "lng": 121.1446, "country": "Taiwan", "city": "Taitung"},
-  {"lat": 24.9936, "lng": 121.3010, "country": "Taiwan", "city": "Taoyuan (Airport)"},
-  
-  // --- Thailand ---
-  {"lat": 13.7563, "lng": 100.5018, "country": "Thailand", "city": "Bangkok"},
-  
-  // --- Turkey ---
-  {"lat": 41.0082, "lng": 28.9784, "country": "Turkey", "city": "Istanbul"},
-  
-  // --- UAE ---
-  {"lat": 25.1972, "lng": 55.2744, "country": "UAE", "city": "Dubai (Burj Khalifa)"},
-  
-  // --- UK ---
-  {"lat": 51.5007, "lng": -0.1246, "country": "UK", "city": "London (Big Ben)"},
-  
-  // --- USA ---
-  {"lat": 33.7490, "lng": -84.3880, "country": "USA", "city": "Atlanta"},
-  {"lat": 30.2672, "lng": -97.7431, "country": "USA", "city": "Austin"},
-  {"lat": 42.3601, "lng": -71.0589, "country": "USA", "city": "Boston"},
-  {"lat": 41.8781, "lng": -87.6298, "country": "USA", "city": "Chicago"},
-  {"lat": 32.7767, "lng": -96.7970, "country": "USA", "city": "Dallas"},
-  {"lat": 39.7392, "lng": -104.9903, "country": "USA", "city": "Denver"},
-  {"lat": 21.3069, "lng": -157.8583, "country": "USA", "city": "Honolulu"},
-  {"lat": 29.7604, "lng": -95.3698, "country": "USA", "city": "Houston"},
-  {"lat": 36.1699, "lng": -115.1398, "country": "USA", "city": "Las Vegas"},
-  {"lat": 34.0522, "lng": -118.2437, "country": "USA", "city": "Los Angeles"},
-  {"lat": 25.7617, "lng": -80.1918, "country": "USA", "city": "Miami"},
-  {"lat": 36.1627, "lng": -86.7816, "country": "USA", "city": "Nashville"},
-  {"lat": 40.7580, "lng": -73.9855, "country": "USA", "city": "New York (Times Square)"},
-  {"lat": 39.9526, "lng": -75.1652, "country": "USA", "city": "Philadelphia"},
-  {"lat": 33.4484, "lng": -112.0740, "country": "USA", "city": "Phoenix"},
-  {"lat": 45.5051, "lng": -122.6750, "country": "USA", "city": "Portland"},
-  {"lat": 32.7157, "lng": -117.1611, "country": "USA", "city": "San Diego"},
-  {"lat": 37.8199, "lng": -122.4783, "country": "USA", "city": "San Francisco (Golden Gate)"},
-  {"lat": 47.6062, "lng": -122.3321, "country": "USA", "city": "Seattle"},
-  {"lat": 38.9072, "lng": -77.0369, "country": "USA", "city": "Washington D.C."},
-  
-  // --- Vietnam ---
-  {"lat": 21.0285, "lng": 105.8542, "country": "Vietnam", "city": "Hanoi"},
-  {"lat": 10.8231, "lng": 106.6297, "country": "Vietnam", "city": "Ho Chi Minh City"}
-];
+const LOCATIONS = locationsData;
 
 export default function GeoGuessrGame() {
   const [gameMode, setGameMode] = useState('menu'); 
@@ -246,8 +18,6 @@ export default function GeoGuessrGame() {
   const [lastDistance, setLastDistance] = useState(null);
   const [lastScore, setLastScore] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  
-  // ⏱️ Timer State
   const [timeLeft, setTimeLeft] = useState(30);
 
   // Leaderboard State
@@ -268,7 +38,6 @@ export default function GeoGuessrGame() {
   const guessMarkerRef = useRef(null); 
   const correctMarkerRef = useRef(null); 
   const polylineRef = useRef(null); 
-  // 🔴 新增：用來管理地圖上的資訊視窗
   const infoWindowsRef = useRef([]);
 
   // Cleanup
@@ -280,7 +49,7 @@ export default function GeoGuessrGame() {
     }
   }, [gameMode]);
 
-  // ⏱️ Countdown Logic
+  // Countdown Logic
   useEffect(() => {
     if ((gameMode === 'single' || gameMode === 'multi') && !showResult && !isLoading && timeLeft > 0) {
         const timer = setInterval(() => {
@@ -407,11 +176,10 @@ export default function GeoGuessrGame() {
     setTimeLeft(30);
     setIsLoading(false);
     
-    // 🔴 清理地圖標記與視窗
     if (guessMarkerRef.current) guessMarkerRef.current.setMap(null);
     if (correctMarkerRef.current) correctMarkerRef.current.setMap(null);
     if (polylineRef.current) polylineRef.current.setMap(null);
-    infoWindowsRef.current.forEach(iw => iw.close()); // 關閉所有視窗
+    infoWindowsRef.current.forEach(iw => iw.close());
     infoWindowsRef.current = [];
 
     if (mapInstanceRef.current) {
@@ -427,23 +195,41 @@ export default function GeoGuessrGame() {
 
   // --- Leaderboard Functions ---
   const saveSinglePlayerScore = async () => {
-    const nameToSave = playerName.trim() || "Guest Player";
-    const leaderboardRef = ref(db, 'leaderboard/single');
-    await push(leaderboardRef, {
-        name: nameToSave,
-        score: score,
-        timestamp: Date.now()
-    });
+    try {
+      const nameToSave = playerName.trim() || "Guest Player";
+      const leaderboardRef = ref(db, 'leaderboard/single');
+      await push(leaderboardRef, {
+          name: nameToSave,
+          score: score,
+          timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error("Save Score Error:", e);
+    }
   };
 
   const fetchSingleLeaderboard = async () => {
-    const q = query(ref(db, 'leaderboard/single'), orderByChild('score'), limitToLast(10));
-    const snapshot = await get(q);
-    if (snapshot.exists()) {
-        const data = snapshot.val();
-        const sortedList = Object.values(data).sort((a, b) => b.score - a.score);
-        setSingleLeaderboard(sortedList);
+    try {
+      const q = query(ref(db, 'leaderboard/single'), orderByChild('score'), limitToLast(20));
+      const snapshot = await get(q);
+      if (snapshot.exists()) {
+          const data = snapshot.val();
+          const sortedList = Object.values(data).sort((a, b) => b.score - a.score);
+          setSingleLeaderboard(sortedList);
+      } else {
+          setSingleLeaderboard([]);
+      }
+    } catch (e) {
+      console.error("Fetch Leaderboard Error:", e);
+      setSingleLeaderboard([]);
     }
+  };
+
+  const handleOpenLeaderboard = async () => {
+      setIsLoading(true);
+      await fetchSingleLeaderboard();
+      setGameMode('leaderboard');
+      setIsLoading(false);
   };
 
   // --- Interactions ---
@@ -452,7 +238,7 @@ export default function GeoGuessrGame() {
     document.body.setAttribute('data-show-result', showResult);
   }, [showResult]);
 
-  // ⏱️ Submit Guess
+  // Submit Guess
   const submitGuess = (isTimeout = false) => {
     if (!isTimeout && (!guessLocation || !currentLocation)) return;
 
@@ -473,16 +259,13 @@ export default function GeoGuessrGame() {
     setScore(newTotalScore);
     setShowResult(true);
 
-    // Draw map lines & InfoWindows
     if (mapInstanceRef.current) {
-        // 1. 建立正確答案標記 (綠色)
         correctMarkerRef.current = new window.google.maps.Marker({
             position: { lat: currentLocation.lat, lng: currentLocation.lng },
             map: mapInstanceRef.current,
             icon: { url: "http://maps.google.com/mapfiles/ms/icons/green-dot.png" }
         });
 
-        // 🔴 2. 顯示正確答案的資訊視窗 (城市名稱)
         const answerInfo = new window.google.maps.InfoWindow({
             content: `<div style="color:black; font-weight:bold; padding:4px;">
                         ${currentLocation.city || "Unknown City"}, ${currentLocation.country}
@@ -491,7 +274,6 @@ export default function GeoGuessrGame() {
         answerInfo.open(mapInstanceRef.current, correctMarkerRef.current);
         infoWindowsRef.current.push(answerInfo);
 
-        // 3. 如果有猜測，畫線並顯示 "Your Guess"
         if (!isTimeout && guessLocation) {
             const lineCoordinates = [{ lat: guessLocation.lat, lng: guessLocation.lng }, { lat: currentLocation.lat, lng: currentLocation.lng }];
             polylineRef.current = new window.google.maps.Polyline({
@@ -499,7 +281,6 @@ export default function GeoGuessrGame() {
             });
             polylineRef.current.setMap(mapInstanceRef.current);
 
-            // 🔴 顯示猜測點的資訊視窗
             const guessInfo = new window.google.maps.InfoWindow({
                 content: `<div style="color:black; padding:4px;">Your Guess</div>`
             });
@@ -511,7 +292,6 @@ export default function GeoGuessrGame() {
             bounds.extend({ lat: currentLocation.lat, lng: currentLocation.lng });
             mapInstanceRef.current.fitBounds(bounds);
         } else {
-            // Timeout or no guess: Center on correct answer
             mapInstanceRef.current.setCenter({ lat: currentLocation.lat, lng: currentLocation.lng });
             mapInstanceRef.current.setZoom(4);
         }
@@ -530,10 +310,15 @@ export default function GeoGuessrGame() {
 
     if (gameMode === 'single') {
         if (round >= maxRounds) {
-            await saveSinglePlayerScore();
-            await fetchSingleLeaderboard();
-            setGameOver(true);
-            setIsLoading(false);
+            try {
+                await saveSinglePlayerScore();
+                await fetchSingleLeaderboard();
+            } catch (error) {
+                console.error("Leaderboard update failed:", error);
+            } finally {
+                setGameOver(true);
+                setIsLoading(false);
+            }
         } else {
             setRound(round + 1);
             const nextLocation = await getValidStreetViewLocation();
@@ -686,14 +471,13 @@ export default function GeoGuessrGame() {
           <div className="text-center mb-8">
             <Globe className="w-20 h-20 mx-auto mb-4 text-blue-500" />
             <h1 className="text-4xl font-bold text-gray-800 mb-2">GeoGuessr</h1>
-            <p className="text-gray-600">Global Multiplayer Edition</p>
           </div>
           
           <div className="mb-6">
              <label className="block text-sm font-medium text-gray-700 mb-1">Enter Your Name</label>
              <input 
                 type="text" 
-                placeholder="Your Name (for Leaderboard)" 
+                placeholder="Your Name" 
                 value={playerName} 
                 onChange={(e) => setPlayerName(e.target.value)} 
                 className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" 
@@ -711,13 +495,21 @@ export default function GeoGuessrGame() {
                   const startLoc = await getValidStreetViewLocation();
                   startNewRound(startLoc); 
               }}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition shadow-lg hover:-translate-y-0.5"
             >
               <Play className="w-6 h-6" /> Single Player
             </button>
+
+            <button
+              onClick={handleOpenLeaderboard}
+              className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 transition shadow-lg hover:-translate-y-0.5"
+            >
+              <Trophy className="w-6 h-6" /> Leaderboard
+            </button>
+
             <div className="border-t pt-4">
               <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
-                <Users className="w-5 h-5" /> Multiplayer (Online)
+                <Users className="w-5 h-5" /> Multiplayer
               </h3>
               <div className="space-y-2">
                 <button onClick={createRoom} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Create Online Room</button>
@@ -730,6 +522,53 @@ export default function GeoGuessrGame() {
             </>
             )}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (gameMode === 'leaderboard') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+          <div className="text-center mb-6">
+            <Trophy className="w-16 h-16 mx-auto mb-4 text-yellow-500" />
+            <h2 className="text-3xl font-bold text-gray-800">Global Top 20</h2>
+            <p className="text-gray-500 text-sm">Best Single Player Scores</p>
+          </div>
+          
+          <div className="bg-gray-50 rounded-xl p-4 mb-6 h-96 overflow-y-auto border border-gray-200">
+            {singleLeaderboard.length > 0 ? (
+              <div className="space-y-2">
+                {singleLeaderboard.map((entry, i) => (
+                  <div key={i} className="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 flex items-center justify-center rounded-full font-bold text-sm 
+                        ${i === 0 ? 'bg-yellow-100 text-yellow-600' : 
+                          i === 1 ? 'bg-gray-200 text-gray-600' : 
+                          i === 2 ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-500'}`}>
+                        {i + 1}
+                      </div>
+                      <span className="font-semibold text-gray-800">{entry.name}</span>
+                    </div>
+                    <span className="font-mono font-bold text-blue-600">{entry.score}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                <ListOrdered className="w-12 h-12 mb-2 opacity-50" />
+                <p>No records yet.</p>
+              </div>
+            )}
+          </div>
+
+          <button 
+            onClick={() => setGameMode('menu')} 
+            className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition"
+          >
+            <Home className="w-5 h-5" /> Back to Menu
+          </button>
         </div>
       </div>
     );
