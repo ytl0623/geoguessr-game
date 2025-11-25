@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock, Loader2, Timer, ListOrdered } from 'lucide-react';
+// Import Firebase
 import { db } from './firebase';
 import { ref, set, onValue, update, get, push, query, orderByChild, limitToLast } from "firebase/database";
+// Import JSON data
 import locationsData from './locations.json';
 
 const LOCATIONS = locationsData;
@@ -12,12 +14,14 @@ export default function GeoGuessrGame() {
   const [guessLocation, setGuessLocation] = useState(null); 
   const [score, setScore] = useState(0);
   const [round, setRound] = useState(1);
-  const [maxRounds] = useState(5);
+  const [maxRounds] = useState(5); 
   const [gameOver, setGameOver] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [lastDistance, setLastDistance] = useState(null);
   const [lastScore, setLastScore] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Timer State
   const [timeLeft, setTimeLeft] = useState(30);
 
   // Leaderboard State
@@ -39,8 +43,27 @@ export default function GeoGuessrGame() {
   const correctMarkerRef = useRef(null); 
   const polylineRef = useRef(null); 
   const infoWindowsRef = useRef([]);
+  const hasSavedScore = useRef(false);
 
-  // Cleanup
+  // --- Reset Game State ---
+  const resetGame = () => {
+    setScore(0);
+    setRound(1);
+    setGameOver(false);
+    setShowResult(false);
+    setLastDistance(null);
+    setLastScore(null);
+    setTimeLeft(30);
+    setGuessLocation(null);
+    setIsLoading(false);
+    hasSavedScore.current = false; 
+    
+    setMultiRoomCode('');
+    setPlayers([]);
+    setIsHost(false);
+  };
+
+  // Cleanup map instance
   useEffect(() => {
     if (gameMode !== 'single' && gameMode !== 'multi') {
         mapInstanceRef.current = null;
@@ -49,7 +72,7 @@ export default function GeoGuessrGame() {
     }
   }, [gameMode]);
 
-  // Countdown Logic
+  // Timer Logic
   useEffect(() => {
     if ((gameMode === 'single' || gameMode === 'multi') && !showResult && !isLoading && timeLeft > 0) {
         const timer = setInterval(() => {
@@ -94,13 +117,15 @@ export default function GeoGuessrGame() {
     };
   };
 
-  // --- Pre-validation Logic ---
+  // --- 🔴 關鍵修正：Pre-validation Logic 加入 source 限制 ---
   const getValidStreetViewLocation = async () => {
     if (!window.google) return null;
     const sv = new window.google.maps.StreetViewService();
     let attempts = 0;
     let foundLocation = null;
-    while (!foundLocation && attempts < 5) {
+    
+    // 嘗試 10 次 (稍微增加次數，因為過濾掉使用者上傳後，可能需要多找幾次)
+    while (!foundLocation && attempts < 10) {
         attempts++;
         const candidate = generateRandomCoords();
         try {
@@ -108,7 +133,9 @@ export default function GeoGuessrGame() {
                 sv.getPanorama({ 
                     location: { lat: candidate.lat, lng: candidate.lng }, 
                     radius: 100000, 
-                    preference: 'nearest'
+                    preference: 'nearest',
+                    // 🔴 強制只抓取官方戶外街景 (解決黑畫面/版權問題)
+                    source: window.google.maps.StreetViewSource.OUTDOOR 
                 }, (data, status) => {
                     if (status === 'OK') resolve(data);
                     else reject(status);
@@ -122,7 +149,7 @@ export default function GeoGuessrGame() {
             };
         } catch (error) { console.log(`Attempt ${attempts} failed.`); }
     }
-    return foundLocation || LOCATIONS[0];
+    return foundLocation || LOCATIONS[0]; // 如果真的找不到，回傳台北101
   };
 
   // --- Map & Street View ---
@@ -132,6 +159,7 @@ export default function GeoGuessrGame() {
         center: { lat: 0, lng: 0 },
         zoom: 2,
         disableDefaultUI: true, 
+        keyboardShortcuts: false,
         clickableIcons: false,
       });
       mapInstanceRef.current.addListener('click', (e) => {
@@ -194,13 +222,13 @@ export default function GeoGuessrGame() {
   };
 
   // --- Leaderboard Functions ---
-  const saveSinglePlayerScore = async () => {
+  const saveToLeaderboard = async (finalScore) => {
     try {
       const nameToSave = playerName.trim() || "Guest Player";
       const leaderboardRef = ref(db, 'leaderboard/single');
       await push(leaderboardRef, {
           name: nameToSave,
-          score: score,
+          score: finalScore,
           timestamp: Date.now()
       });
     } catch (e) {
@@ -238,7 +266,7 @@ export default function GeoGuessrGame() {
     document.body.setAttribute('data-show-result', showResult);
   }, [showResult]);
 
-  // Submit Guess
+  // ⏱️ Submit Guess
   const submitGuess = (isTimeout = false) => {
     if (!isTimeout && (!guessLocation || !currentLocation)) return;
 
@@ -311,11 +339,10 @@ export default function GeoGuessrGame() {
     if (gameMode === 'single') {
         if (round >= maxRounds) {
             try {
-                await saveSinglePlayerScore();
+                await saveToLeaderboard(score);
                 await fetchSingleLeaderboard();
-            } catch (error) {
-                console.error("Leaderboard update failed:", error);
-            } finally {
+            } catch (error) { console.error(error); } 
+            finally {
                 setGameOver(true);
                 setIsLoading(false);
             }
@@ -346,6 +373,7 @@ export default function GeoGuessrGame() {
 
   const createRoom = async () => {
     if (!playerName.trim()) { alert('Please enter player name!'); return; }
+    resetGame();
     setIsLoading(true);
     const newRoomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
     const newPlayerId = Date.now().toString(); 
@@ -375,6 +403,7 @@ export default function GeoGuessrGame() {
 
   const joinRoom = async () => {
     if (!playerName.trim() || !roomCode.trim()) { alert('Please enter details!'); return; }
+    resetGame();
     const code = roomCode.toUpperCase();
     const newPlayerId = Date.now().toString();
     const roomRef = ref(db, `rooms/${code}`);
@@ -402,7 +431,7 @@ export default function GeoGuessrGame() {
   useEffect(() => {
     if (!multiRoomCode) return;
     const roomRef = ref(db, `rooms/${multiRoomCode}`);
-    const unsubscribe = onValue(roomRef, (snapshot) => {
+    const unsubscribe = onValue(roomRef, async (snapshot) => {
         const data = snapshot.val();
         if (data) {
             if (data.players) {
@@ -418,7 +447,15 @@ export default function GeoGuessrGame() {
                     startNewRound(data.currentLocation);
                 }
             } else if (data.status === 'finished') {
+                if (!hasSavedScore.current && playerId && data.players[playerId]) {
+                    const myFinalScore = data.players[playerId].score;
+                    await saveToLeaderboard(myFinalScore);
+                    hasSavedScore.current = true; 
+                }
+                // 多人結束也要抓排行榜
+                await fetchSingleLeaderboard();
                 setGameOver(true);
+                setIsLoading(false);
             }
             if (data.status === 'playing') {
                 if (data.round !== round) {
@@ -431,7 +468,7 @@ export default function GeoGuessrGame() {
         }
     });
     return () => unsubscribe();
-  }, [multiRoomCode, gameMode, round]);
+  }, [multiRoomCode, gameMode, round, playerId]);
 
   useEffect(() => {
     if (!window.google) {
@@ -467,17 +504,25 @@ export default function GeoGuessrGame() {
   if (gameMode === 'menu') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
+        
+        <style>{`
+            .gm-style-cc, .gmnoprint a, .gmnoprint span, .gm-style-mtc {
+                display: none !important;
+            }
+        `}</style>
+
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-8">
             <Globe className="w-20 h-20 mx-auto mb-4 text-blue-500" />
             <h1 className="text-4xl font-bold text-gray-800 mb-2">GeoGuessr</h1>
+            <p className="text-gray-600">Global Multiplayer Edition</p>
           </div>
           
           <div className="mb-6">
              <label className="block text-sm font-medium text-gray-700 mb-1">Enter Your Name</label>
              <input 
                 type="text" 
-                placeholder="Your Name" 
+                placeholder="Your Name (for Leaderboard)" 
                 value={playerName} 
                 onChange={(e) => setPlayerName(e.target.value)} 
                 className="w-full p-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" 
@@ -490,6 +535,7 @@ export default function GeoGuessrGame() {
             <button
               onClick={async () => { 
                   if (!playerName.trim()) { alert('Please enter a name to play!'); return; }
+                  resetGame();
                   setGameMode('single'); 
                   setIsLoading(true);
                   const startLoc = await getValidStreetViewLocation();
@@ -509,7 +555,7 @@ export default function GeoGuessrGame() {
 
             <div className="border-t pt-4">
               <h3 className="text-lg font-bold text-gray-700 mb-3 flex items-center gap-2">
-                <Users className="w-5 h-5" /> Multiplayer
+                <Users className="w-5 h-5" /> Multiplayer (Online)
               </h3>
               <div className="space-y-2">
                 <button onClick={createRoom} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition">Create Online Room</button>
@@ -602,7 +648,10 @@ export default function GeoGuessrGame() {
                     <div className="text-center text-gray-600 italic">Waiting for host to start...</div>
                 )
             )}
-            <button onClick={() => { setGameMode('menu'); setMultiRoomCode(''); setPlayers([]); }} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition">Leave</button>
+            <button onClick={() => { 
+                resetGame();
+                setGameMode('menu'); 
+            }} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition">Leave</button>
           </div>
         </div>
       </div>
@@ -640,9 +689,9 @@ export default function GeoGuessrGame() {
           )}
 
           {/* Single Player Global Leaderboard */}
-          {gameMode === 'single' && (
+          {(gameMode === 'single' || gameMode === 'multi') && (
             <div className="bg-gray-50 rounded-xl p-4 mb-6">
-              <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2"><Globe className="w-4 h-4"/> Global Top 10</h3>
+              <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2"><Globe className="w-4 h-4"/> Global Top 20</h3>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {singleLeaderboard.length > 0 ? singleLeaderboard.map((entry, i) => (
                   <div key={i} className={`bg-white p-2 rounded flex justify-between items-center ${entry.name === playerName && entry.score === score ? 'border-2 border-yellow-400' : ''}`}>
@@ -659,7 +708,10 @@ export default function GeoGuessrGame() {
             </div>
           )}
 
-          <button onClick={() => { setGameMode('menu'); setScore(0); setRound(1); setGameOver(false); }} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition"><Home className="w-5 h-5" /> Main Menu</button>
+          <button onClick={() => { 
+              resetGame();
+              setGameMode('menu'); 
+          }} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition"><Home className="w-5 h-5" /> Main Menu</button>
         </div>
       </div>
     );
@@ -679,7 +731,6 @@ export default function GeoGuessrGame() {
         <div className="flex items-center gap-6">
             <div><span className="text-xs text-gray-500 uppercase block">Round</span><span className="text-xl font-bold text-blue-600">{round}/{maxRounds}</span></div>
             
-            {/* ⏱️ Timer UI */}
             <div className={`flex items-center gap-1 ${timeLeft <= 10 ? 'text-red-600 animate-pulse' : 'text-gray-800'}`}>
                 <Timer className="w-5 h-5" />
                 <span className="text-2xl font-mono font-bold">{timeLeft}s</span>
@@ -695,7 +746,10 @@ export default function GeoGuessrGame() {
                 </>
             )}
         </div>
-        <button onClick={() => setGameMode('menu')} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm">Leave</button>
+        <button onClick={() => {
+            resetGame();
+            setGameMode('menu');
+        }} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium text-sm">Leave</button>
       </div>
 
       {gameMode === 'multi' && (
