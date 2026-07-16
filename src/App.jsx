@@ -568,6 +568,9 @@ export default function GeoGuessrGame() {
             </>
             )}
           </div>
+          <p className="text-center text-xs text-gray-400 mt-6">
+            Build: {__BUILD_TIME__}
+          </p>
         </div>
       </div>
     );
