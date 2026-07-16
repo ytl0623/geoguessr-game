@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Globe, Users, Trophy, MapPin, Play, Home, Map as MapIcon, CheckCircle, Clock, Loader2, Timer, ListOrdered } from 'lucide-react';
 // Import Firebase
 import { db } from './firebase';
-import { ref, set, onValue, update, get, push, query, orderByChild, limitToLast } from "firebase/database";
+import { ref, set, onValue, update, get, push, query, orderByChild, limitToLast, serverTimestamp } from "firebase/database";
 // Import JSON data
 import locationsData from './locations.json';
 
@@ -229,7 +229,7 @@ export default function GeoGuessrGame() {
       await push(leaderboardRef, {
           name: nameToSave,
           score: finalScore,
-          timestamp: Date.now()
+          timestamp: serverTimestamp()
       });
     } catch (e) {
       console.error("Save Score Error:", e);
